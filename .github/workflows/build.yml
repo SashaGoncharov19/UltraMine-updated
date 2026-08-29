@@ -69,3 +69,32 @@ jobs:
             ultramine/ultrasource/build/libs/*.jar
             ultramine/ultrasource/build/distributions/*.zip
             ultramine/ultrasource/build/SHA256SUMS.txt
+
+      # Boots the freshly built server-dist zip and requires it to reach
+      # "Done" (fully started), then stops it via console command.
+      - name: Boot smoke test
+        working-directory: ultramine/ultrasource/build
+        run: |
+          mkdir -p smoke && cd smoke
+          unzip -q ../distributions/*-server-dist.zip
+          JAR=$(ls ultramine_core-*-server.jar)
+          echo "Booting $JAR on $(java -version 2>&1 | head -1)"
+          mkfifo in
+          (java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          exec 9>in
+          booted=0
+          for i in $(seq 1 96); do
+            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            [ -f exitcode ] && break
+            sleep 5
+          done
+          if [ "$booted" != 1 ]; then
+            echo '::error::Server failed to boot (no "Done" within 8 min)'
+            tail -c 20000 console.log
+            exit 1
+          fi
+          echo stop >&9
+          for i in $(seq 1 24); do [ -f exitcode ] && break; sleep 5; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
+          echo '--- last console lines ---'
+          tail -n 40 console.log

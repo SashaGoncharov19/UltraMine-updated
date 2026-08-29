@@ -14,11 +14,12 @@ Triggers: every push, every pull request, manual dispatch.
 3. `actions/setup-java` — Temurin **JDK 8** (what the codebase targets) + Gradle dependency cache.
 4. `./gradlew jar jar_source jar_server jar_client serverDist` with `-Poverride_version=indev-<short-sha>` (skips git-tag versioning; see [02-build-system.md](02-build-system.md)).
 5. SHA-256 checksums of all outputs are printed to the job summary and uploaded together with the artifacts (retention-limited CI artifacts, downloadable from the run page).
+6. **Boot smoke test** — the freshly built `server-dist` zip is unpacked and started on the runner; the run fails unless the server reaches `Done` (fully started, all three default worlds initialized) within 8 minutes, after which it is stopped via the console. A green build means "compiles *and boots*", not just "compiles".
 
 ### `.github/workflows/release.yml` — releases
 Trigger: pushing a tag matching `v*` (e.g. `v0.1.6`). Version = tag without the `v`.
 
-Builds the same task set, then:
+Builds the same task set and **runs the same boot smoke test** (nothing is published if the server does not start), then:
 
 1. Collects `*-dev.jar`, `*-sources.jar`, `*-server.jar`, `*-client.jar`, `*-server-dist.zip` and writes `SHA256SUMS.txt`.
 2. **`actions/attest-build-provenance`** — generates a signed [artifact attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations) for every jar/zip: a Sigstore-signed statement, stored by GitHub, binding the artifact's SHA-256 digest to this repository, the exact commit, the workflow file and the run that produced it.
