@@ -30,7 +30,7 @@ runtimeCommon / runtimeClient / runtimeServer      (runtime-only, per side)
 packageClient / packageServer / packageAll         (aggregates; used for Class-Path + dumpLibs)
 ```
 
-Noteworthy runtime stack (all pinned to the 1.7.10 era): launchwrapper 1.11, ASM `asm-debug-all` 5.0.3, Netty 4.0.10.Final, Guava 17.0, log4j2 **2.0-beta9**, Scala 2.11.1 + Akka 2.3.3 (FML ships Scala for scala mods), trove4j 3.0.3, **koloboke** 0.6.8 (high-perf primitive collections, used inside patched vanilla classes), snakeyaml 1.16 (UM configs), LMAX disruptor 3.2.1 (async log4j), commons-dbcp2 2.1.1 + mysql-connector 5.1.31 (server-side DB pool), jline 2.13 (server console). Client-only: LWJGL 2.9.1, paulscode sound, realms, twitch.
+Noteworthy runtime stack (after the Stage 1 refresh — see [06](06-modernization-notes.md)): launchwrapper 1.11, ASM `asm-debug-all` 5.0.3, **Netty 4.0.56.Final**, Guava 17.0 (kept — mods compile against it), **log4j2 2.17.2** (upgraded from 2.0-beta9; custom console layout/rewrite-policy plugins ported), Scala 2.11.1 + Akka 2.3.3 (kept — FML ships Scala for scala mods), trove4j 3.0.3, **koloboke** 0.6.8 (high-perf primitive collections, used inside patched vanilla classes), **snakeyaml 1.33** (UM configs), **LMAX disruptor 3.4.4** (async log4j), **commons-dbcp2 2.9.0** + **mysql-connector 5.1.49** (server-side DB pool), jline 2.13 (server console). Client-only: LWJGL 2.9.1, paulscode sound, realms, twitch.
 
 Test stack: Spock 1.1 (groovy 2.4).
 

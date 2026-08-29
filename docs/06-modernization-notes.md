@@ -22,12 +22,12 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 | Library | Pinned | Notes |
 |---|---|---|
-| log4j2 | **2.0-beta9** | Within the Log4Shell-affected range (CVE-2021-44228 affects 2.0-beta9+; Mojang shipped a mitigation config for 1.7–1.11.2). Also a *beta* of the plugin API that `UMConsoleLayout`/`UMStripColorsRewritePolicy` are compiled against — upgrading to 2.17+ requires porting those two plugins and re-testing async logging (Disruptor selector). Highest-priority security item. |
-| snakeyaml | 1.16 | CVE-2022-1471 class of issues (unsafe global tags). Risk is limited because YAML inputs are admin-owned config files, but upgrade to 1.33/2.x with `SafeConstructor`-style loading is cheap insurance. `YamlConfigProvider` uses custom `PropertyUtils` — check API drift. |
-| netty-all | 4.0.10.Final | Very old; upgrade within 4.0.x (→ 4.0.56.Final) is near drop-in; 4.1.x needs a compile check of patched network classes. Mods bundling their own netty usage generally tolerate 4.1. |
+| log4j2 | ~~2.0-beta9~~ → **2.17.2** | **Upgraded in Stage 1.** Was within the Log4Shell-affected range (CVE-2021-44228 affects 2.0-beta9+). Both custom plugins ported; async logging kept (disruptor → 3.4.4). Residual risk: third-party coremods compiled against beta9 *core internals* (rare — mods normally use only the stable log4j API). |
+| snakeyaml | ~~1.16~~ → **1.33** | **Upgraded in Stage 1.** CVE-2022-1471-class risk remains limited (YAML inputs are admin-owned config files); full fix (2.x + SafeConstructor-style loading) deferred — 2.x removes APIs `YamlConfigProvider` uses. |
+| netty-all | ~~4.0.10.Final~~ → **4.0.56.Final** | **Upgraded in Stage 1** (last 4.0.x — near drop-in). 4.1.x needs a separate compile/runtime pass of the patched network classes. |
 | guava | 17.0 | Many 1.7.10 mods compile against 17 — **do not bump** casually; keep at 17 unless shading. |
-| mysql-connector-java | 5.1.31 | Old JDBC driver; `JDBCDataProvider`/`Databases` reference `com.mysql.jdbc.Driver` by name — 8.x renamed the class (`com.mysql.cj.jdbc.Driver`) and changed defaults (timezone, SSL). Straightforward but needs code touch. |
-| commons-dbcp2 | 2.1.1 | Upgrade freely (2.9+). |
+| mysql-connector-java | ~~5.1.31~~ → **5.1.49** | **Upgraded in Stage 1** to the last 5.1.x (keeps `com.mysql.jdbc.Driver` and MySQL 5.5-server support). 8.x deferred: renamed driver class + TLS/timezone default changes — needs fallback logic in `Databases` and user migration notes. |
+| commons-dbcp2 | ~~2.1.1~~ → **2.9.0** | **Upgraded in Stage 1** (API-compatible). |
 | ASM (`asm-debug-all`) | 5.0.3 | Cannot parse class files newer than Java 8 → blocks any modern-JVM work; `asm-debug-all` artifact is discontinued (→ `asm` + `asm-tree` + `asm-util` + `asm-commons` 9.x). UM's transformers + `ServiceDelegateGenerator` + buildSrc all use ASM. |
 | koloboke | 0.6.8 | Abandoned project; works on 8, annotation-processor-generated impls may misbehave on newer JVMs. Candidate for replacement (fastutil) only if going beyond Java 8. |
 | trove4j | 3.0.3 | Abandoned but stable on 8. |
@@ -60,10 +60,15 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 *Gradle-8 migration notes:* `compile`/`runtime` configurations are gone (→ `implementation`/`runtimeOnly` or custom configurations — the build already uses custom ones, they just need `canBeResolved` flags), `IncrementalTaskInputs` (used by all three buildSrc tasks) was removed in Gradle 8 (→ `InputChanges`), and `SpecialSource:1.7.3` should bump to 1.11.x.
 
-### Stage 1 — dependency & security refresh (moderate, still Java 8)
-- log4j2 → 2.17.2 (port the two custom plugins, keep async logging), snakeyaml → 1.33/2.x, dbcp2 → 2.9+, mysql → 8.x (rename driver class, set `serverTimezone`), netty → 4.0.56 (then evaluate 4.1), commons-* bumps.
-- Keep guava 17 and Scala 2.11 for mod compatibility.
-- Re-test: async chunk IO, JDBC storage, RCON, console colors, backups.
+### Stage 1 — dependency & security refresh (moderate, still Java 8) — **DONE (first pass)**
+- ~~log4j2 → 2.17.2~~ **done**: closes the Log4Shell-range exposure. Ported `UMConsoleLayout` (`helpers.Charsets`/`Constants` removed upstream → local replacements; `getMillis()` → `getTimeMillis()`) and `UMStripColorsRewritePolicy` (event copy now via `Log4jLogEvent.Builder`); replaced log4j-internal `Integers`/`Strings` helpers used by FML/vanilla (`FMLProxyPacket`, `FMLNetworkHandler`, `TwitchStream`). Disruptor → 3.4.4 (2.17 async requirement). `log4j2.xml` unchanged — verified compatible. The CI smoke test now fails on any log4j StatusLogger ERROR, so a broken logging setup cannot slip through.
+- ~~snakeyaml → 1.33~~ **done** (dropped the removed `IntrospectionException` from `YamlConfigProvider`). 2.x deferred: it removes the `Representer()`/`Constructor()` APIs used here; revisit with a SafeConstructor-style hardening pass.
+- ~~netty → 4.0.56.Final~~ **done** (last 4.0.x; 4.1 needs a separate compatibility pass).
+- ~~dbcp2 → 2.9.0~~ **done** (API-compatible with `Databases`).
+- ~~mysql-connector → 5.1.49~~ **done** — last 5.1.x, keeps `com.mysql.jdbc.Driver` and old-MySQL-server compatibility. 8.x deliberately deferred: it renames the driver class, changes TLS/timezone defaults and drops MySQL 5.5-server support; do it as an opt-in with `Databases` fallback logic.
+- Bonus: Forge's version check now points at the live `https://maven.minecraftforge.net` promotions URL and logs one warning line on failure instead of a stack trace at every boot.
+- Kept on purpose: guava 17, gson 2.2.4, Scala 2.11 (1.7.10 mods compile against these exact versions).
+- Still to re-test manually on a real setup: JDBC player-data storage (`inSQLServerStorage`, not covered by the CI smoke test), RCON, console colors on Windows terminals, backups under load.
 
 ### Stage 2 — modern JVM support (large, optional)
 Only worth it if running mods on Java 17/21 is a goal (prior art: the GTNewHorizons 1.7.10 stack — lwjgl3ify/RFB — proves it's possible but they patch launchwrapper, coremods and many mods):

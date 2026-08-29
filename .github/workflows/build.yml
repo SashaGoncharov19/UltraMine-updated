@@ -116,3 +116,10 @@ jobs:
           [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
           echo '--- last console lines ---'
           tail -n 40 console.log
+          # log4j StatusLogger errors mean the logging config/plugins are broken
+          # (server can still reach "Done" with fallback logging) — fail hard.
+          if grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3} .* (ERROR|FATAL) ' console.log; then
+            echo '::error::log4j status errors detected — logging configuration or plugins are broken'
+            grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3} .* (ERROR|FATAL) ' console.log | head -n 20
+            exit 1
+          fi

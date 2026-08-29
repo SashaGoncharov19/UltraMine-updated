@@ -12,8 +12,6 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.config.plugins.Plugin;
 import org.apache.logging.log4j.core.config.plugins.PluginAttribute;
 import org.apache.logging.log4j.core.config.plugins.PluginFactory;
-import org.apache.logging.log4j.core.helpers.Charsets;
-import org.apache.logging.log4j.core.helpers.Constants;
 import org.apache.logging.log4j.core.layout.AbstractStringLayout;
 import org.fusesource.jansi.Ansi;
 import org.ultramine.server.bootstrap.UMBootstrap;
@@ -27,6 +25,7 @@ public class UMConsoleLayout extends AbstractStringLayout
 
 	private static final String[] controlMap = new String[128];
 	private static final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+	private static final String LINE_SEP = System.lineSeparator();
 	
 	protected UMConsoleLayout(Charset charset)
 	{
@@ -41,7 +40,7 @@ public class UMConsoleLayout extends AbstractStringLayout
 		StringBuilder sb = new StringBuilder(10+1+6+4+1+2 + msg.length() + (trwn == null ? 0 : trwn.length() + 2) + (ANSI ? 100 : 0));
 		
 		sb.append('[');
-		sb.append(dateFormat.format(event.getMillis()));
+		sb.append(dateFormat.format(event.getTimeMillis()));
 		sb.append("] ");
 		
 		sb.append('[');
@@ -73,11 +72,11 @@ public class UMConsoleLayout extends AbstractStringLayout
 
 		if(trwn != null)
 		{
-			sb.append(Constants.LINE_SEP);
+			sb.append(LINE_SEP);
 			sb.append(trwn);
 		}
-		
-		sb.append(Constants.LINE_SEP);
+
+		sb.append(LINE_SEP);
 		
 		return sb.toString();
 	}
@@ -161,7 +160,23 @@ public class UMConsoleLayout extends AbstractStringLayout
 	public static UMConsoleLayout createLayout(@PluginAttribute("charset") final String charsetName)
 	{
 		String overrideCharset = UMBootstrap.getTerminalCharset();
-		return new UMConsoleLayout(Charsets.getSupportedCharset(overrideCharset != null && !overrideCharset.isEmpty() ? overrideCharset : charsetName));
+		return new UMConsoleLayout(resolveCharset(overrideCharset != null && !overrideCharset.isEmpty() ? overrideCharset : charsetName));
+	}
+
+	//Replacement for log4j 2.0-beta9 Charsets.getSupportedCharset, removed in log4j 2.x
+	private static Charset resolveCharset(String name)
+	{
+		if(name != null)
+		{
+			try
+			{
+				return Charset.forName(name);
+			}
+			catch (Exception ignored)
+			{
+			}
+		}
+		return Charset.defaultCharset();
 	}
 
 	static
