@@ -16,6 +16,8 @@
 + [Исходники ядра](https://github.com/4gname/UltraMine/tree/master/ultramine/ultrasource "src")
 + [Maven репозиторий](http://maven.ultramine.ru/org/ultramine/core/ "Maven")
 
+Документация по кодовой базе (English, для разработки/обновления ядра): [docs/README.md](docs/README.md)
+
 Известные несовместимости:
 
 + FastCraft 
