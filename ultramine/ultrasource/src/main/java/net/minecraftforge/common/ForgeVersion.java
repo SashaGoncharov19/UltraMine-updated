@@ -78,6 +78,10 @@ public class ForgeVersion
 
 	public static void startVersionCheck()
 	{
+		//Forge for 1.7.10 is frozen at 10.13.4.1614 and the promotions endpoint
+		//this build knew is gone, so the check is off unless explicitly enabled
+		if (!Boolean.getBoolean("forge.versionCheck"))
+			return;
 		new Thread("Forge Version Check")
 		{
 			@SuppressWarnings("unchecked")
