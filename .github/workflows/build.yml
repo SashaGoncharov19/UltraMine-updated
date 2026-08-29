@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (JDK 8, Gradle wrapper)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Verifies gradle/wrapper/gradle-wrapper.jar against Gradle's official
+      # checksums — protects against a tampered wrapper binary in the repo.
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          cache: gradle
+
+      - name: Compute build version
+        id: ver
+        run: echo "version=indev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build jars and server distribution
+        working-directory: ultramine/ultrasource
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace \
+            -Poverride_version='${{ steps.ver.outputs.version }}' \
+            jar jar_source jar_server jar_client serverDist
+
+      - name: Generate SHA-256 checksums
+        working-directory: ultramine/ultrasource/build
+        run: |
+          : > SHA256SUMS.txt
+          (cd libs && sha256sum *.jar) >> SHA256SUMS.txt
+          (cd distributions && sha256sum *.zip) >> SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          {
+            echo '## SHA-256 checksums'
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ultramine_core-${{ steps.ver.outputs.version }}
+          if-no-files-found: error
+          path: |
+            ultramine/ultrasource/build/libs/*.jar
+            ultramine/ultrasource/build/distributions/*.zip
+            ultramine/ultrasource/build/SHA256SUMS.txt

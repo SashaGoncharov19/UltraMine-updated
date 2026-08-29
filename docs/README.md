@@ -21,6 +21,7 @@ English documentation of the UltraMine server core, produced by walking the actu
 | [04-vanilla-forge-modifications.md](04-vanilla-forge-modifications.md) | Exactly what was changed inside `net.minecraft*` / `cpw.mods.fml` and why mods conflict |
 | [05-ultramine-packages.md](05-ultramine-packages.md) | Package-by-package map of `org.ultramine`: every subsystem with key classes |
 | [06-modernization-notes.md](06-modernization-notes.md) | Outdated-component inventory, security items, staged update plan, the Bukkit question, build-today recipe |
+| [07-ci-and-releases.md](07-ci-and-releases.md) | GitHub Actions build/release pipeline, checksums, signed build provenance, how users verify downloads |
 
 ## Reading order
 

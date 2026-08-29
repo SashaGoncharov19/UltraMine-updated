@@ -12,14 +12,15 @@
 
 ## Repositories and dependencies
 
-Declared in `build.gradle`:
+Declared in `build.gradle` (fixed during Stage 0 — see [06](06-modernization-notes.md)):
 
-| Repo | URL | Status today |
+| Repo | URL | Notes |
 |---|---|---|
-| forge | `http://files.minecraftforge.net/maven` | **dead** (moved to `https://maven.minecraftforge.net`, plain HTTP no longer served) |
-| mavenCentral | — | OK |
-| sonatypeSnapshot | `https://oss.sonatype.org/content/repositories/snapshots/` | legacy, being retired |
-| minecraft | `https://libraries.minecraft.net/` | OK |
+| mavenCentral | — | resolves everything except Mojang-era artifacts (verified: SpecialSource, all Scala/ASM/koloboke/lwjgl/jinput coordinates are present) |
+| minecraft | `https://libraries.minecraft.net/` | Mojang-only artifacts: launchwrapper, authlib, realms, lzma, icu4j-core-mojang, paulscode, twitch |
+| forge | `https://maven.minecraftforge.net/` | fallback (originally `http://files.minecraftforge.net/maven`, which is dead) |
+
+The dead `oss.sonatype.org` snapshots repo was removed — nothing resolved from it.
 
 Dependency configurations model the client/server split:
 
@@ -62,6 +63,8 @@ dumpLibs       -> copies the runtime configuration into build/libs/libraries (th
 Resource splitting: `processServerResources` excludes client assets (`assets/minecraft/{font,shaders,texts,textures}`, `assets/fml/textures`); `processClientResources` excludes `org/ultramine/defaults` (server-side config templates).
 
 Artifact switches in `gradle.properties`: `produce_server_jar=true`, `produce_client_jar=true`, `produce_universal_jar=false`.
+
+Stage-0 additions: `dumpServerLibs` (copies `configurations.packageServer` — the exact jars the server manifest's `Class-Path` references), `generateStartScripts`, and `serverDist` (a runnable `...-server-dist.zip`: server jar + `libraries/` + `start.sh`/`start.cmd`). CI builds and publishes these — see [07-ci-and-releases.md](07-ci-and-releases.md).
 
 ## Versioning scheme
 

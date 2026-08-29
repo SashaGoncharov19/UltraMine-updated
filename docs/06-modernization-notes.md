@@ -51,12 +51,12 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ## C. Staged modernization plan
 
-### Stage 0 — "make it build again" (small, do first)
-1. Install a JDK 8 toolchain (e.g. Temurin 8) or move to Gradle 8 + toolchains right away.
-2. Fix repository URLs in `build.gradle` (`https://maven.minecraftforge.net`, drop sonatype); optionally add `ultramine/libraries/libraries.zip` (unzipped) as a local Maven repo for full offline builds.
-3. Verify the whole pipeline: `compileJava → injectVersion → reobf → sidesplit → jar_server`, and that the produced jar boots a test server with `libraries/` beside it.
-4. Set a version source (git tag or `-Poverride_version`) so artifacts aren't named `indev`.
-5. Optional cleanups that cost nothing: rename `SpeicialClassTransformTask` → `SpecialClassTransformTask`, fix `UndoableOnce` statics, implement `CommandRegistry` map-view `remove` (see [05](05-ultramine-packages.md) §18).
+### Stage 0 — "make it build again" (small, do first) — **IN PROGRESS**
+1. ~~Fix repository URLs in `build.gradle`~~ **done**: `mavenCentral` + `https://libraries.minecraft.net` + `https://maven.minecraftforge.net`; dead sonatype repo removed. (Verified against Central: SpecialSource 1.7.3 and every Scala/ASM/koloboke/lwjgl/jinput coordinate resolve there; only Mojang-era artifacts — launchwrapper, authlib, realms, lzma, icu4j-core-mojang, paulscode, twitch — come from `libraries.minecraft.net`.)
+2. ~~CI builds~~ **done**: GitHub Actions builds on JDK 8 (Temurin) with the stock Gradle 6.0.1 wrapper, wrapper-jar checksum validation, SHA-256 checksums, and tag-driven releases with signed provenance — see [07-ci-and-releases.md](07-ci-and-releases.md).
+3. ~~Runnable distribution~~ **done**: new `serverDist` task zips server jar + `libraries/` + start scripts.
+4. Version source: CI passes `-Poverride_version` (branch: `indev-<sha>`, release: the tag); the git-describe scheme remains for local use.
+5. Remaining: boot-test a built server against a real mod set; optional zero-cost cleanups (rename `SpeicialClassTransformTask` → `SpecialClassTransformTask`, fix `UndoableOnce` statics, implement `CommandRegistry` map-view `remove` — see [05](05-ultramine-packages.md) §18); later, Gradle dependency verification (`gradle/verification-metadata.xml`) to pin dependency checksums.
 
 *Gradle-8 migration notes:* `compile`/`runtime` configurations are gone (→ `implementation`/`runtimeOnly` or custom configurations — the build already uses custom ones, they just need `canBeResolved` flags), `IncrementalTaskInputs` (used by all three buildSrc tasks) was removed in Gradle 8 (→ `InputChanges`), and `SpecialSource:1.7.3` should bump to 1.11.x.
 
