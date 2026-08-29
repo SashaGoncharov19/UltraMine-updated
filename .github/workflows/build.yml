@@ -5,6 +5,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'If set, also publish a release with this version (no leading v, e.g. 0.1.6)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -14,6 +19,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Manual release path: dispatching this workflow with release_version set
+  # runs the full release pipeline (build, smoke test, checksums, provenance
+  # attestation, GitHub release + tag) from release.yml on the dispatched ref.
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ inputs.release_version }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
   build:
     name: Build (JDK 8, Gradle wrapper)
     runs-on: ubuntu-latest
