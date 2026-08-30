@@ -24,18 +24,14 @@ group = project_group
 version = (concat_mc_version_to=='version' ? (minecraft_version+'-') : '') + computeVersion()
 
 repositories {
-	maven {
-		name 'forge'
-		url 'http://files.minecraftforge.net/maven'
-	}
 	mavenCentral()
-	maven {
-		name 'sonatypeSnapshot'
-		url 'https://oss.sonatype.org/content/repositories/snapshots/'
-	}
 	maven {
 		name 'minecraft'
 		url 'https://libraries.minecraft.net/'
+	}
+	maven {
+		name 'forge'
+		url 'https://maven.minecraftforge.net/'
 	}
 }
 
@@ -84,7 +80,7 @@ dependencies {
 	compileClient 'com.paulscode:libraryjavasound:20101123'
 	compileClient 'com.paulscode:librarylwjglopenal:20100824'
 	compileClient 'com.paulscode:soundsystem:20120107'
-	compileCommon 'io.netty:netty-all:4.0.10.Final'
+	compileCommon 'io.netty:netty-all:4.0.56.Final'
 	compileCommon 'com.google.guava:guava:17.0'
 	compileCommon 'org.apache.commons:commons-lang3:3.3.2'
 	compileCommon 'commons-io:commons-io:2.4'
@@ -93,20 +89,20 @@ dependencies {
 	compileClient 'net.java.jutils:jutils:1.0.0'
 	compileCommon 'com.google.code.gson:gson:2.2.4'
 	compileCommon 'com.mojang:authlib:1.5.16'
-	compileCommon 'org.apache.logging.log4j:log4j-api:2.0-beta9'
-	compileCommon 'org.apache.logging.log4j:log4j-core:2.0-beta9'
+	compileCommon 'org.apache.logging.log4j:log4j-api:2.17.2'
+	compileCommon 'org.apache.logging.log4j:log4j-core:2.17.2'
 	compileClient 'org.lwjgl.lwjgl:lwjgl:2.9.1'
 	compileClient 'org.lwjgl.lwjgl:lwjgl_util:2.9.1'
 	compileClient 'tv.twitch:twitch:5.16'
 
-	compileCommon 'org.yaml:snakeyaml:1.16'
-	compileCommon 'com.lmax:disruptor:3.2.1'
-	compileCommon 'org.apache.commons:commons-dbcp2:2.1.1'
+	compileCommon 'org.yaml:snakeyaml:1.33'
+	compileCommon 'com.lmax:disruptor:3.4.4'
+	compileCommon 'org.apache.commons:commons-dbcp2:2.9.0'
 	compileCommon 'net.openhft:koloboke-api-jdk8:0.6.8'
 	compileServer 'jline:jline:2.13', {transitive = false}
 
 	runtimeCommon 'net.openhft:koloboke-impl-jdk8:0.6.8'
-	runtimeServer 'mysql:mysql-connector-java:5.1.31'
+	runtimeServer 'mysql:mysql-connector-java:5.1.49'
 
 	testCompile "org.spockframework:spock-core:1.1-groovy-2.4-rc-1"
 }
@@ -248,6 +244,33 @@ tasks.publish.dependsOn changelog
 task dumpLibs(type: Copy) {
 	into "$buildDir/libs/libraries"
 	from configurations.runtime
+}
+
+task dumpServerLibs(type: Copy) {
+	into "$buildDir/server_dist/libraries"
+	from configurations.packageServer
+}
+
+task generateStartScripts {
+	ext.outDir = file("$buildDir/server_dist_scripts")
+	inputs.property('jarName', { tasks.jar_server.archiveFileName.get() })
+	outputs.dir outDir
+	doLast {
+		outDir.mkdirs()
+		String jarName = tasks.jar_server.archiveFileName.get()
+		String jvmArgs = '-server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms2G -Xmx4G'
+		new File(outDir, 'start.sh').setText("#!/bin/sh\nexec java ${jvmArgs} -jar ${jarName} \"\$@\"\n", 'UTF-8')
+		new File(outDir, 'start.cmd').setText("@echo off\r\njava ${jvmArgs} -jar ${jarName}\r\npause\r\n", 'UTF-8')
+	}
+}
+
+//Self-contained runnable server: jar + libraries/ (the jar's manifest Class-Path) + start scripts
+task serverDist(type: Zip) {
+	dependsOn tasks.jar_server, tasks.dumpServerLibs, tasks.generateStartScripts
+	classifier = 'server-dist'
+	from tasks.jar_server.archiveFile
+	from "$buildDir/server_dist"
+	from tasks.generateStartScripts.outDir
 }
 
 String getGitDesc() {

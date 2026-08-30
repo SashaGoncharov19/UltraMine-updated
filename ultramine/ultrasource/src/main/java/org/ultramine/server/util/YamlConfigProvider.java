@@ -10,7 +10,6 @@ import org.yaml.snakeyaml.introspector.Property;
 import org.yaml.snakeyaml.introspector.PropertyUtils;
 import org.yaml.snakeyaml.representer.Representer;
 
-import java.beans.IntrospectionException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -28,7 +27,7 @@ public class YamlConfigProvider
 	{
 		PropertyUtils prorutils = new PropertyUtils()
 		{
-			protected Set<Property> createPropertySet(Class<? extends Object> type, BeanAccess bAccess) throws IntrospectionException
+			protected Set<Property> createPropertySet(Class<? extends Object> type, BeanAccess bAccess)
 			{
 				Set<Property> properties = new LinkedHashSet<Property>();
 				Collection<Property> props = getPropertiesMap(type, bAccess).values();

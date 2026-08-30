@@ -12,14 +12,15 @@
 
 ## Repositories and dependencies
 
-Declared in `build.gradle`:
+Declared in `build.gradle` (fixed during Stage 0 — see [06](06-modernization-notes.md)):
 
-| Repo | URL | Status today |
+| Repo | URL | Notes |
 |---|---|---|
-| forge | `http://files.minecraftforge.net/maven` | **dead** (moved to `https://maven.minecraftforge.net`, plain HTTP no longer served) |
-| mavenCentral | — | OK |
-| sonatypeSnapshot | `https://oss.sonatype.org/content/repositories/snapshots/` | legacy, being retired |
-| minecraft | `https://libraries.minecraft.net/` | OK |
+| mavenCentral | — | resolves everything except Mojang-era artifacts (verified: SpecialSource, all Scala/ASM/koloboke/lwjgl/jinput coordinates are present) |
+| minecraft | `https://libraries.minecraft.net/` | Mojang-only artifacts: launchwrapper, authlib, realms, lzma, icu4j-core-mojang, paulscode, twitch |
+| forge | `https://maven.minecraftforge.net/` | fallback (originally `http://files.minecraftforge.net/maven`, which is dead) |
+
+The dead `oss.sonatype.org` snapshots repo was removed — nothing resolved from it.
 
 Dependency configurations model the client/server split:
 
@@ -29,7 +30,7 @@ runtimeCommon / runtimeClient / runtimeServer      (runtime-only, per side)
 packageClient / packageServer / packageAll         (aggregates; used for Class-Path + dumpLibs)
 ```
 
-Noteworthy runtime stack (all pinned to the 1.7.10 era): launchwrapper 1.11, ASM `asm-debug-all` 5.0.3, Netty 4.0.10.Final, Guava 17.0, log4j2 **2.0-beta9**, Scala 2.11.1 + Akka 2.3.3 (FML ships Scala for scala mods), trove4j 3.0.3, **koloboke** 0.6.8 (high-perf primitive collections, used inside patched vanilla classes), snakeyaml 1.16 (UM configs), LMAX disruptor 3.2.1 (async log4j), commons-dbcp2 2.1.1 + mysql-connector 5.1.31 (server-side DB pool), jline 2.13 (server console). Client-only: LWJGL 2.9.1, paulscode sound, realms, twitch.
+Noteworthy runtime stack (after the Stage 1 refresh — see [06](06-modernization-notes.md)): launchwrapper 1.11, ASM `asm-debug-all` 5.0.3, **Netty 4.0.56.Final**, Guava 17.0 (kept — mods compile against it), **log4j2 2.17.2** (upgraded from 2.0-beta9; custom console layout/rewrite-policy plugins ported), Scala 2.11.1 + Akka 2.3.3 (kept — FML ships Scala for scala mods), trove4j 3.0.3, **koloboke** 0.6.8 (high-perf primitive collections, used inside patched vanilla classes), **snakeyaml 1.33** (UM configs), **LMAX disruptor 3.4.4** (async log4j), **commons-dbcp2 2.9.0** + **mysql-connector 5.1.49** (server-side DB pool), jline 2.13 (server console). Client-only: LWJGL 2.9.1, paulscode sound, realms, twitch.
 
 Test stack: Spock 1.1 (groovy 2.4).
 
@@ -62,6 +63,8 @@ dumpLibs       -> copies the runtime configuration into build/libs/libraries (th
 Resource splitting: `processServerResources` excludes client assets (`assets/minecraft/{font,shaders,texts,textures}`, `assets/fml/textures`); `processClientResources` excludes `org/ultramine/defaults` (server-side config templates).
 
 Artifact switches in `gradle.properties`: `produce_server_jar=true`, `produce_client_jar=true`, `produce_universal_jar=false`.
+
+Stage-0 additions: `dumpServerLibs` (copies `configurations.packageServer` — the exact jars the server manifest's `Class-Path` references), `generateStartScripts`, and `serverDist` (a runnable `...-server-dist.zip`: server jar + `libraries/` + `start.sh`/`start.cmd`). CI builds and publishes these — see [07-ci-and-releases.md](07-ci-and-releases.md).
 
 ## Versioning scheme
 

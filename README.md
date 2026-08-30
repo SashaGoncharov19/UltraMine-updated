@@ -18,6 +18,17 @@
 
 Документация по кодовой базе (English, для разработки/обновления ядра): [docs/README.md](docs/README.md)
 
+### Сборки и релизы
+
+Все бинарники собираются **автоматически на GitHub Actions** из исходников этого репозитория — никаких вручную загруженных jar-файлов. Каждый релиз содержит `SHA256SUMS.txt` и подписанную аттестацию происхождения (GitHub artifact attestations), по которой любой может убедиться, что файл собран именно этим репозиторием из конкретного коммита:
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing            # целостность
+gh attestation verify <файл> --repo SashaGoncharov19/UltraMine-updated   # происхождение
+```
+
+Готовый к запуску сервер — `*-server-dist.zip` в [релизах](../../releases). Подробнее: [docs/07-ci-and-releases.md](docs/07-ci-and-releases.md). Старые бинарники в `ultramine/libraries/` и `bootstrap.jar` остались от прежней схемы распространения и аттестациями не покрыты.
+
 Известные несовместимости:
 
 + FastCraft 

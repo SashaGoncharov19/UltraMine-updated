@@ -11,7 +11,6 @@ import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.play.client.C17PacketCustomPayload;
 import net.minecraft.network.play.server.S3FPacketCustomPayload;
 import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.core.helpers.Integers;
 import com.google.common.collect.ConcurrentHashMultiset;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Multiset.Entry;
@@ -29,7 +28,20 @@ public class FMLProxyPacket extends Packet {
 	private INetHandler netHandler;
 	private NetworkDispatcher dispatcher;
 	private static Multiset<String> badPackets = ConcurrentHashMultiset.create();
-	private static int packetCountWarning = Integers.parseInt(System.getProperty("fml.badPacketCounter", "100"), 100);
+	private static int packetCountWarning = parseIntOr(System.getProperty("fml.badPacketCounter", "100"), 100);
+
+	//Replacement for log4j 2.0-beta9 Integers.parseInt(String, int), removed in log4j 2.x
+	private static int parseIntOr(String value, int defaultValue)
+	{
+		try
+		{
+			return Integer.parseInt(value);
+		}
+		catch (NumberFormatException e)
+		{
+			return defaultValue;
+		}
+	}
 	private FMLProxyPacket(byte[] payload, String channel)
 	{
 		this(Unpooled.wrappedBuffer(payload), channel);

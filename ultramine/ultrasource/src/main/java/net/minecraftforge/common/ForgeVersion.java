@@ -78,6 +78,10 @@ public class ForgeVersion
 
 	public static void startVersionCheck()
 	{
+		//Forge for 1.7.10 is frozen at 10.13.4.1614 and the promotions endpoint
+		//this build knew is gone, so the check is off unless explicitly enabled
+		if (!Boolean.getBoolean("forge.versionCheck"))
+			return;
 		new Thread("Forge Version Check")
 		{
 			@SuppressWarnings("unchecked")
@@ -86,7 +90,7 @@ public class ForgeVersion
 			{
 				try
 				{
-					URL url = new URL("http://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json");
+					URL url = new URL("https://maven.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json");
 					InputStream con = url.openStream();
 					String data = new String(ByteStreams.toByteArray(con));
 					con.close();
@@ -139,7 +143,8 @@ public class ForgeVersion
 				}
 				catch (Exception e)
 				{
-					e.printStackTrace();
+					//Version check is informational only - a single line instead of a stack trace
+					cpw.mods.fml.common.FMLLog.warning("Forge version check failed: %s", e.toString());
 					status = FAILED;
 				}
 			}

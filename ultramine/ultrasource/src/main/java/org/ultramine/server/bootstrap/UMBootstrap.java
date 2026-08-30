@@ -46,6 +46,7 @@ public class UMBootstrap
 	public static void handleFirstLine(String[] args)
 	{
 		setSysPropertyIfNotPresent("Log4jContextSelector", "org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"); //always async logging
+		setSysPropertyIfNotPresent("log4j2.disable.jmx", "true"); //log4j 2.x JMX registration is denied by FMLSecurityManager (MBeanTrustPermission)
 
 		setupTerminal(args);
 
