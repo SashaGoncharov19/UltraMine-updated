@@ -1,12 +1,12 @@
 package cpw.mods.fml.common.registry;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 
 import net.minecraft.item.ItemStack;
 
 import org.apache.logging.log4j.Level;
+
+import sun.misc.Unsafe;
 
 import com.google.common.base.Throwables;
 
@@ -36,24 +36,21 @@ class ItemStackHolderRef {
 		makeWritable(field);
 	}
 
-	private static Field modifiersField;
-	private static Object reflectionFactory;
-	private static Method newFieldAccessor;
-	private static Method fieldAccessorSet;
+	//The historical implementation stripped FINAL via Field.modifiers and wrote
+	//through sun.reflect.ReflectionFactory field accessors - both are gone on
+	//modern JVMs (Field.modifiers is reflection-filtered since 12, the factory
+	//methods since 9). Unsafe static-field writes work on Java 8 and 25 alike.
+	private static Unsafe unsafe;
 	private static void makeWritable(Field f)
 	{
 		try
 		{
-			if (modifiersField == null)
+			if (unsafe == null)
 			{
-				Method getReflectionFactory = Class.forName("sun.reflect.ReflectionFactory").getDeclaredMethod("getReflectionFactory");
-				reflectionFactory = getReflectionFactory.invoke(null);
-				newFieldAccessor = Class.forName("sun.reflect.ReflectionFactory").getDeclaredMethod("newFieldAccessor", Field.class, boolean.class);
-				fieldAccessorSet = Class.forName("sun.reflect.FieldAccessor").getDeclaredMethod("set", Object.class, Object.class);
-				modifiersField = Field.class.getDeclaredField("modifiers");
-				modifiersField.setAccessible(true);
+				Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+				theUnsafe.setAccessible(true);
+				unsafe = (Unsafe) theUnsafe.get(null);
 			}
-			modifiersField.setInt(f, f.getModifiers() & ~Modifier.FINAL);
 		} catch (Exception e)
 		{
 			throw Throwables.propagate(e);
@@ -73,8 +70,9 @@ class ItemStackHolderRef {
 		}
 		try
 		{
-			Object fieldAccessor = newFieldAccessor.invoke(reflectionFactory, field, false);
-			fieldAccessorSet.invoke(fieldAccessor, null, is);
+			Object base = unsafe.staticFieldBase(field);
+			long offset = unsafe.staticFieldOffset(field);
+			unsafe.putObject(base, offset, is);
 		}
 		catch (Exception e)
 		{
