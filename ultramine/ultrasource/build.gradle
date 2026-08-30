@@ -263,8 +263,27 @@ task generateStartScripts {
 		outDir.mkdirs()
 		String jarName = tasks.jar_server.archiveFileName.get()
 		String jvmArgs = '-server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms2G -Xmx4G'
-		new File(outDir, 'start.sh').setText("#!/bin/sh\nexec java ${jvmArgs} -jar ${jarName} \"\$@\"\n", 'UTF-8')
-		new File(outDir, 'start.cmd').setText("@echo off\r\njava ${jvmArgs} -jar ${jarName}\r\npause\r\n", 'UTF-8')
+		String sh = '#!/bin/sh\n' +
+			'JVM_ARGS="' + jvmArgs + '"\n' +
+			'\n' +
+			'# This is a Java-8-era server; modern JVMs need reflection opened up.\n' +
+			'JAVA_MAJOR=$(java -version 2>&1 | sed -n \'s/.*version "\\([0-9]*\\).*/\\1/p\' | head -n 1)\n' +
+			'[ "$JAVA_MAJOR" = "1" ] && JAVA_MAJOR=8\n' +
+			'if [ "${JAVA_MAJOR:-8}" -ge 9 ] 2>/dev/null; then\n' +
+			'  JVM_ARGS="$JVM_ARGS --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"\n' +
+			'fi\n' +
+			'if [ "${JAVA_MAJOR:-8}" -ge 23 ] 2>/dev/null; then\n' +
+			'  JVM_ARGS="$JVM_ARGS --sun-misc-unsafe-memory-access=allow"\n' +
+			'fi\n' +
+			'\n' +
+			'exec java $JVM_ARGS -jar ' + jarName + ' "$@"\n'
+		new File(outDir, 'start.sh').setText(sh, 'UTF-8')
+		String cmd = '@echo off\r\n' +
+			'rem On Java 9+ add the --add-opens flags from start.sh to MODERN_JAVA_FLAGS\r\n' +
+			'set MODERN_JAVA_FLAGS=\r\n' +
+			'java ' + jvmArgs + ' %MODERN_JAVA_FLAGS% -jar ' + jarName + '\r\n' +
+			'pause\r\n'
+		new File(outDir, 'start.cmd').setText(cmd, 'UTF-8')
 	}
 }
 
