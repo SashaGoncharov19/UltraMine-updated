@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
       modpack_url:
-        description: 'Modpack boot test: server pack zip URL, or "gtnh-latest" for the newest GTNH Java 8 server pack'
+        description: 'Modpack boot test: server pack zip URL, or "gtnh-latest" for the newest GTNH daily server pack (variant picked by modpack_java)'
         required: false
         default: ''
       modpack_java:
@@ -152,14 +152,20 @@ jobs:
 
       - name: Resolve modpack URL
         id: pack
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           URL='${{ inputs.modpack_url }}'
           if [ "$URL" = "gtnh-latest" ]; then
-            NAME=$(curl -fsSL https://downloads.gtnewhorizons.com/ServerPacks/ \
-              | grep -oE 'GT_New_Horizons_[0-9][^"<> ]*_Server_Java_8\.zip' \
-              | sort -uV | tail -n 1)
-            [ -n "$NAME" ] || { echo '::error::Could not resolve the latest GTNH server pack from the listing'; exit 1; }
-            URL="https://downloads.gtnewhorizons.com/ServerPacks/$NAME"
+            # GTNH publishes daily server packs as GitHub release assets on
+            # GTNewHorizons/GTNH-Daily-Builds (the downloads site serves no
+            # scrapable listing). Pick the variant for the requested Java.
+            if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then VARIANT=server-java17-26; else VARIANT=server-java8; fi
+            # /releases (not /releases/latest) so prerelease-flagged dailies resolve too
+            URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              'https://api.github.com/repos/GTNewHorizons/GTNH-Daily-Builds/releases?per_page=10' \
+              | jq -r --arg v "$VARIANT.zip" '[.[] | .assets[] | select(.name | endswith($v)) | .browser_download_url] | first // empty')
+            [ -n "$URL" ] || { echo "::error::Could not resolve the latest GTNH $VARIANT pack from GTNH-Daily-Builds releases"; exit 1; }
           fi
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "key=modpack-$(printf %s "$URL" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
