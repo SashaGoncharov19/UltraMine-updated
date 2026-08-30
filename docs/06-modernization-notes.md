@@ -259,18 +259,18 @@ without checking, so a null would be a crash in the Nether rather than a
 saving), and the MSB array is allocated up front instead of on the first block
 above id 255.
 
-### A limit worth knowing about: the 16-bit chunk key
+### Why the world is 500,000 blocks wide
 
-Unrelated to storage mode, and found while testing the chunk key: `ChunkHash`
-packs a chunk coordinate into 16 bits, so the loaded-chunk map, the unload
-queue and the save queue address chunks in the range -32768..32767 - roughly
-524,000 blocks either side of origin. Minecraft's own limit is 30,000,000
-blocks, so a player who travels past that point reaches chunks whose key
-collides with a chunk near spawn. `ChunkHashTest` pins the boundary rather
-than leaving it to be discovered from a corrupted world; lifting it means
-widening the key to a `long` everywhere it is used, which is a change of its
-own. Servers with world borders configured (`borders:` in `worlds.yml`) are
-well inside it.
+`ChunkHash` packs a chunk coordinate into 16 bits, so the loaded-chunk map, the
+unload queue and the save queue address chunks in the range -32768..32767 -
+524,288 blocks either side of origin. That is exactly why
+`WorldConstants.MAX_BLOCK_COORD` is 500,000 rather than Minecraft's own
+30,000,000: past the key's range two genuinely different chunks would share one
+key. The two constants are a pair, and `ChunkHashTest` now asserts they stay
+one - the world limit must leave every reachable chunk with a key of its own -
+alongside a test that states the aliasing outright. Raising the world limit
+means widening the key to a `long` everywhere it is used, which is a change of
+its own.
 
 ### Open question for step 4
 

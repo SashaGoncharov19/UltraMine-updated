@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.junit.Test;
+import org.ultramine.server.WorldConstants;
 
 /**
  * Every chunk in memory is keyed by one of these ints - the loaded-chunk map,
@@ -41,18 +42,29 @@ public class ChunkHashTest
 	}
 
 	/**
-	 * The boundary this packing has, stated rather than discovered later: a chunk
-	 * coordinate is kept in 16 bits, so it holds -32768..32767 - about half a
-	 * million blocks either side of origin. Past that, coordinates wrap and two
-	 * genuinely different chunks map to one key. Minecraft's own limit is far
-	 * beyond that, so a server that lets players travel past ~524k blocks needs a
-	 * wider key, not a bigger world border.
+	 * A chunk coordinate is kept in 16 bits, so it holds -32768..32767 and
+	 * anything past that wraps onto a chunk near spawn. That is not a latent
+	 * corruption bug - the core already bounds the world to keep inside it - but
+	 * the two facts have to stay in step, which is what this checks: the world
+	 * limit must leave every reachable chunk with a key of its own.
 	 */
+	@Test
+	public void theWorldLimitKeepsEveryReachableChunkInsideTheSixteenBitKey()
+	{
+		int maxChunk = WorldConstants.MAX_BLOCK_COORD >> 4;
+		assertTrue("world limit of " + WorldConstants.MAX_BLOCK_COORD + " blocks is chunk " + maxChunk
+				+ ", outside the 16-bit key", maxChunk <= 32767);
+
+		assertEquals("the last reachable chunk still round-trips", maxChunk, ChunkHash.keyToX(ChunkHash.chunkToKey(maxChunk, 0)));
+		assertEquals(-maxChunk, ChunkHash.keyToX(ChunkHash.chunkToKey(-maxChunk, 0)));
+	}
+
+	/** And what the limit is protecting against, stated outright. */
 	@Test
 	public void chunkCoordinatesOutsideSixteenBitsAliasOntoEachOther()
 	{
 		assertEquals("32768 wraps onto -32768", ChunkHash.chunkToKey(-32768, 0), ChunkHash.chunkToKey(32768, 0));
-		//chunk 62500 is block x = 1,000,000
+		//chunk 62500 is block x = 1,000,000 - past the core's world limit
 		assertEquals(ChunkHash.chunkToKey(62500 - 65536, 7), ChunkHash.chunkToKey(62500, 7));
 		assertEquals("and it reads back as the low coordinate", 62500 - 65536, ChunkHash.keyToX(ChunkHash.chunkToKey(62500, 7)));
 	}
