@@ -72,7 +72,7 @@ jobs:
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
           mkfifo in
-          (java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          (set +e; java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
           for i in $(seq 1 90); do

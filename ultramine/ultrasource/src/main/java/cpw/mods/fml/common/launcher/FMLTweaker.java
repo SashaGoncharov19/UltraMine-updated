@@ -19,7 +19,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import cpw.mods.fml.relauncher.FMLLaunchHandler;
-import cpw.mods.fml.relauncher.FMLRelaunchLog;
 import cpw.mods.fml.relauncher.FMLSecurityManager;
 
 public class FMLTweaker implements ITweaker {
@@ -41,7 +40,8 @@ public class FMLTweaker implements ITweaker {
 			//Security Manager is permanently disabled (JEP 486). FML only used it to
 			//trap System.exit calls, which TerminalTransformer also rewrites at the
 			//bytecode level, so continuing without one is safe.
-			FMLRelaunchLog.info("SecurityManager is not supported by this JVM; continuing without FML's exit-trapping manager");
+			//FMLRelaunchLog cannot be used this early - its side is not set yet
+			System.out.println("SecurityManager is not supported by this JVM; continuing without FML's exit-trapping manager");
 		}
 		catch (SecurityException se)
 		{
