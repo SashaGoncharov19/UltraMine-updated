@@ -6,7 +6,7 @@ English documentation of the UltraMine server core, produced by walking the actu
 
 - Minecraft **1.7.10** dedicated-server core built as a fork-with-merged-sources of **Forge 10.13.4.1614 / FML 7.99.39.1** (MCP 9.05).
 - **No Bukkit API** — by design; server features come from the core's own APIs (services/DI, permissions, economy, commands, multiworld, scheduler).
-- Java 8, Gradle 6.0.1, custom build pipeline (version inject → MCP→notch reobfuscation → client/server side split).
+- Java 8, Gradle 8.14.3 (Java 8 toolchain), custom build pipeline (version inject → MCP→notch reobfuscation → client/server side split).
 - ~2040 Java files: 1574 vanilla+Forge, 248 FML, **217 UltraMine** (`org.ultramine`, ~22k LOC).
 - UltraMine touches ~54 vanilla/FML files (chunk pipeline, tick loop, networking, commands); the rest of its logic lives in `org.ultramine`.
 - Headline server features: async chunk IO + background generation, off-heap chunk storage (`sun.misc.Unsafe`), adaptive per-player chunk streaming, incremental world saving, TPS regulation + watchdog, per-chunk/per-mod profiling, entity load balancer, new mob-spawn engine, multiworld with import/temp worlds, YAML configs (`server.yml`/`worlds.yml`), warps/homes, economy API, permissions API, crontab scheduler, backups/restarts, item blocker, RU/EN command transliteration.

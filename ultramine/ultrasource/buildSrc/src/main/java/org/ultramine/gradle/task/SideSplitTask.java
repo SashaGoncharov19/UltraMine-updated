@@ -2,14 +2,21 @@ package org.ultramine.gradle.task;
 
 import org.apache.commons.io.FileUtils;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileVisitDetails;
 import org.gradle.api.file.FileVisitor;
 import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.InputDirectory;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
-import org.gradle.api.tasks.incremental.IncrementalTaskInputs;
-import org.gradle.api.tasks.incremental.InputFileDetails;
+import org.gradle.work.ChangeType;
+import org.gradle.work.FileChange;
+import org.gradle.work.Incremental;
+import org.gradle.work.InputChanges;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.AnnotationNode;
@@ -28,13 +35,15 @@ import java.util.Set;
 public class SideSplitTask extends DefaultTask
 {
 	private static final String SIDEONLY_DESK = "Lcpw/mods/fml/relauncher/SideOnly;";
-	@InputDirectory
 	private File inputDir;
-	@Input
 	private boolean outputServerSide = true;
-	@Input
 	private boolean outputClientSide = true;
-	private File taskDir = new File(getProject().getBuildDir(), getName());
+	/*
+	 * The same directory as inputDir, declared again as a file collection: that
+	 * is what InputChanges reports per-file changes against.
+	 */
+	private final ConfigurableFileCollection incrementalInput = getProject().getObjects().fileCollection();
+	private File taskDir = new File(getProject().getLayout().getBuildDirectory().get().getAsFile(), getName());
 	private File classesServer = new File(taskDir, "classes_server");
 	private File classesClient = new File(taskDir, "classes_client");
 
@@ -44,6 +53,7 @@ public class SideSplitTask extends DefaultTask
 		FileUtils.forceMkdir(classesClient);
 	}
 
+	@Internal
 	public File getInputDir()
 	{
 		return inputDir;
@@ -52,8 +62,18 @@ public class SideSplitTask extends DefaultTask
 	public void setInputDir(File inputDir)
 	{
 		this.inputDir = inputDir;
+		this.incrementalInput.setFrom(inputDir);
 	}
 
+	@Incremental
+	@InputFiles
+	@PathSensitive(PathSensitivity.RELATIVE)
+	public FileCollection getIncrementalInput()
+	{
+		return incrementalInput;
+	}
+
+	@Input
 	public boolean isOutputServerSide()
 	{
 		return outputServerSide;
@@ -64,6 +84,7 @@ public class SideSplitTask extends DefaultTask
 		this.outputServerSide = outputServerSide;
 	}
 
+	@Input
 	public boolean isOutputClientSide()
 	{
 		return outputClientSide;
@@ -87,7 +108,7 @@ public class SideSplitTask extends DefaultTask
 	}
 
 	@TaskAction
-	void doAction(IncrementalTaskInputs inputs) throws IOException
+	void doAction(InputChanges inputs) throws IOException
 	{
 		if(!inputs.isIncremental())
 		{
@@ -109,17 +130,22 @@ public class SideSplitTask extends DefaultTask
 		}
 		else
 		{
-			inputs.outOfDate((InputFileDetails detals) -> processClass(detals.getFile()));
-
 			Set<File> dirsToCheck = new HashSet<File>();
-			inputs.removed((InputFileDetails detals) -> {
-				File file = new File(classesServer, getRelPath(detals.getFile()));
+			for(FileChange change : inputs.getFileChanges(incrementalInput))
+			{
+				if(change.getChangeType() != ChangeType.REMOVED)
+				{
+					processClass(change.getFile());
+					continue;
+				}
+
+				File file = new File(classesServer, getRelPath(change.getFile()));
 				file.delete();
 				dirsToCheck.add(file.getParentFile());
-				file = new File(classesClient, getRelPath(detals.getFile()));
+				file = new File(classesClient, getRelPath(change.getFile()));
 				file.delete();
 				dirsToCheck.add(file.getParentFile());
-			});
+			}
 
 			for(File file : dirsToCheck)
 				if(file.exists() && UMFileUtils.isDirEmptyRecursive(file.toPath()))

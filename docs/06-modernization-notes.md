@@ -11,7 +11,7 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 | Component | Pinned | Problem | Direction |
 |---|---|---|---|
-| Gradle | 6.0.1 (wrapper) | Won't run on JDK 17/21 (needs JDK 8–13); deprecated APIs used by the build | Upgrade to Gradle 8.x; use Java toolchains (build runs on a modern JDK, compiles with a JDK 8 toolchain) |
+| Gradle | ~~6.0.1~~ **8.14.3** (wrapper) | ~~Won't run on JDK 17/21; deprecated APIs used by the build~~ **done** — build script migrated off the removed `compile`/`runtime` configurations, `classifier`, `destinationDir`, `project.exec` and `buildDir`; the reobfuscation tasks moved from the removed `IncrementalTaskInputs` to `InputChanges`; a Java 8 toolchain is declared | Remaining: move the Gradle daemon itself to JDK 17+ (required by Gradle 9), which the toolchain makes a workflow change rather than a build change |
 | Java target | 8 | Fine for 1.7.10 (mods expect 8); modern JDKs break several core mechanisms (see D) | Keep target 8 short-term; treat "run on 17/21" as a separate project |
 | Forge maven | `http://files.minecraftforge.net/maven` | Dead (HTTP, host retired) | `https://maven.minecraftforge.net` + `https://libraries.minecraft.net`; note `ultramine/libraries/libraries.zip` already contains a Maven-layout mirror of the whole runtime classpath and can serve as a local repo for offline builds |
 | Sonatype snapshots repo | oss.sonatype.org | Being retired | Remove (nothing actually resolves from it) |
@@ -53,7 +53,7 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ### Stage 0 — "make it build again" (small, do first) — **IN PROGRESS**
 1. ~~Fix repository URLs in `build.gradle`~~ **done**: `mavenCentral` + `https://libraries.minecraft.net` + `https://maven.minecraftforge.net`; dead sonatype repo removed. (Verified against Central: SpecialSource 1.7.3 and every Scala/ASM/koloboke/lwjgl/jinput coordinate resolve there; only Mojang-era artifacts — launchwrapper, authlib, realms, lzma, icu4j-core-mojang, paulscode, twitch — come from `libraries.minecraft.net`.)
-2. ~~CI builds~~ **done**: GitHub Actions builds on JDK 8 (Temurin) with the stock Gradle 6.0.1 wrapper, wrapper-jar checksum validation, SHA-256 checksums, and tag-driven releases with signed provenance — see [07-ci-and-releases.md](07-ci-and-releases.md).
+2. ~~CI builds~~ **done**: GitHub Actions builds on JDK 8 (Temurin) with the Gradle 8.14.3 wrapper, wrapper-jar checksum validation, SHA-256 checksums, and tag-driven releases with signed provenance — see [07-ci-and-releases.md](07-ci-and-releases.md).
 3. ~~Runnable distribution~~ **done**: new `serverDist` task zips server jar + `libraries/` + start scripts.
 4. Version source: CI passes `-Poverride_version` (branch: `indev-<sha>`, release: the tag); the git-describe scheme remains for local use.
 5. Remaining: boot-test a built server against a real mod set; optional zero-cost cleanups (rename `SpeicialClassTransformTask` → `SpecialClassTransformTask`, fix `UndoableOnce` statics, implement `CommandRegistry` map-view `remove` — see [05](05-ultramine-packages.md) §18); later, Gradle dependency verification (`gradle/verification-metadata.xml`) to pin dependency checksums.

@@ -6,15 +6,22 @@ import net.md_5.specialsource.provider.ClassLoaderProvider;
 import net.md_5.specialsource.provider.JointProvider;
 import org.apache.commons.io.FileUtils;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileVisitDetails;
 import org.gradle.api.file.FileVisitor;
-import org.gradle.api.tasks.InputDirectory;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
-import org.gradle.api.tasks.incremental.IncrementalTaskInputs;
-import org.gradle.api.tasks.incremental.InputFileDetails;
+import org.gradle.work.ChangeType;
+import org.gradle.work.FileChange;
+import org.gradle.work.Incremental;
+import org.gradle.work.InputChanges;
 import org.ultramine.gradle.internal.DirectoryClassRepo;
 import org.ultramine.gradle.internal.RepoInheritanceProvider;
 import org.ultramine.gradle.internal.UMFileUtils;
@@ -30,18 +37,21 @@ import java.util.Set;
 
 public class ReobfTask extends DefaultTask
 {
-	@InputDirectory
 	private File inputDir;
-	@InputDirectory
 	private File overrideInputDir;
-	@InputFile
 	private File srg;
 	private FileCollection classpath;
-	@OutputDirectory
-	private File outputDir = new File(getProject().getBuildDir(), getName());
+	private File outputDir = new File(getProject().getLayout().getBuildDirectory().get().getAsFile(), getName());
 	private DirectoryClassRepo classRepo;
 	private JarRemapper remapper;
+	/*
+	 * The two input directories declared again as one file collection: that is
+	 * what InputChanges reports per-file changes against.
+	 */
+	private final ConfigurableFileCollection incrementalInput = getProject().getObjects().fileCollection();
 
+	@InputFile
+	@PathSensitive(PathSensitivity.NONE)
 	public File getSrg()
 	{
 		return srg;
@@ -57,6 +67,7 @@ public class ReobfTask extends DefaultTask
 		this.srg = getProject().file(srg);
 	}
 
+	@Internal
 	public File getInputDir()
 	{
 		return inputDir;
@@ -65,8 +76,10 @@ public class ReobfTask extends DefaultTask
 	public void setInputDir(File inputDir)
 	{
 		this.inputDir = inputDir;
+		refreshIncrementalInput();
 	}
 
+	@Internal
 	public File getOverrideInputDir()
 	{
 		return overrideInputDir;
@@ -75,8 +88,26 @@ public class ReobfTask extends DefaultTask
 	public void setOverrideInputDir(File overrideInputDir)
 	{
 		this.overrideInputDir = overrideInputDir;
+		refreshIncrementalInput();
 	}
 
+	private void refreshIncrementalInput()
+	{
+		if(overrideInputDir == null)
+			incrementalInput.setFrom(inputDir);
+		else
+			incrementalInput.setFrom(inputDir, overrideInputDir);
+	}
+
+	@Incremental
+	@InputFiles
+	@PathSensitive(PathSensitivity.RELATIVE)
+	public FileCollection getIncrementalInput()
+	{
+		return incrementalInput;
+	}
+
+	@Classpath
 	public FileCollection getClasspath()
 	{
 		return classpath;
@@ -87,6 +118,7 @@ public class ReobfTask extends DefaultTask
 		this.classpath = classpath;
 	}
 
+	@OutputDirectory
 	public File getOutputDir()
 	{
 		return outputDir;
@@ -98,7 +130,7 @@ public class ReobfTask extends DefaultTask
 	}
 
 	@TaskAction
-	void doAction(IncrementalTaskInputs inputs) throws IOException
+	void doAction(InputChanges inputs) throws IOException
 	{
 		initRemapper();
 		if(!inputs.isIncremental())
@@ -120,14 +152,20 @@ public class ReobfTask extends DefaultTask
 		}
 		else
 		{
-			inputs.outOfDate((InputFileDetails detals) -> processClass(detals.getFile()));
-
 			Set<File> dirsToCheck = new HashSet<File>();
-			inputs.removed((InputFileDetails detals) -> {
-				File file = new File(outputDir, getRelPath(detals.getFile()));
-				file.delete();
-				dirsToCheck.add(file.getParentFile());
-			});
+			for(FileChange change : inputs.getFileChanges(incrementalInput))
+			{
+				if(change.getChangeType() == ChangeType.REMOVED)
+				{
+					File file = new File(outputDir, getRelPath(change.getFile()));
+					file.delete();
+					dirsToCheck.add(file.getParentFile());
+				}
+				else
+				{
+					processClass(change.getFile());
+				}
+			}
 
 			for(File file : dirsToCheck)
 				if(file.exists() && UMFileUtils.isDirEmptyRecursive(file.toPath()))
