@@ -30,8 +30,12 @@ on:
 permissions:
   contents: read
 
+# A push should cancel the previous push's build, but not a modpack boot test:
+# those run for twenty minutes and are dispatched deliberately, so they get a
+# group of their own, per pack variant and storage mode. `inputs` is empty on a
+# push event, which lands every push in the plain CI group.
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ inputs.modpack_url && format('modpack-{0}-{1}', inputs.modpack_java, inputs.chunk_storage) || 'ci' }}
   cancel-in-progress: true
 
 jobs:
