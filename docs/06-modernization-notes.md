@@ -116,3 +116,56 @@ Run: copy jar + `libraries/` into a server dir, `java -server -XX:+UseG1GC -Xms2
 2. Is there access to the original upstream repo (full history, tags) for reference?
 3. Which mods/plugins must be supported? (Drives the Bukkit decision and regression-test list.)
 4. Is the MySQL storage path (`inSQLServerStorage`) in real use? (Determines how carefully to treat the JDBC upgrade.)
+
+## G. Modpack compatibility: findings from booting GTNH
+
+The CI `Modpack boot test` (dispatch `build.yml` with `modpack_url`) overlays a
+real server pack onto a freshly built server-dist and requires it to reach
+`Done`. Running it against the current GT New Horizons daily pack (294 mods)
+exposed a series of conflicts. Most were the same mistake in different places
+and are now fixed; two are architectural and are documented as
+incompatibilities.
+
+### Fixed: the core must not diverge from vanilla shapes that coremods patch
+
+A coremod compiled against stock 1.7.10 patches a *shape* — a field of a given
+name and descriptor, an allocation site, a local-variable table. Where the core
+had quietly changed that shape, the coremod's patch silently missed while the
+rest of its rewrite still applied, and the class failed to load, taking every
+dependent mod with it.
+
+| Divergence | Symptom | Fix |
+|---|---|---|
+| `NBTTagCompound(int)` / `NBTTagList(int)` added to vanilla classes | `ClassFormatError: Duplicate method <init>(I)V` — coremods inject the same signature | static `withExpectedSize` factories instead |
+| NBT map allocated in `createMap()` rather than inline in `<init>()` | `ClassCastException: HashMap → Object2ObjectOpenHashMap` on every `ItemStack.copy()` — Hodgepodge rewrites the inline `new HashMap()` and overwrites `copy()` to cast it | allocate inline, vanilla-shaped |
+| `DataWatcher.watchedObjects` as `WatchableObject[32]` | `@Shadow field field_75695_b was not located` (CoreTweaks) → class fails to load | `WatchableObjectMap`: a `Map` outside, id-indexed array inside, grows past 32 |
+| Forge prelude locals dropped from `World.updateEntityWithOptionalForce` | ArchaicFix's LVT capture fails the whole `World` class | locals restored, behaviour unchanged |
+| Every Java-7+ class re-emitted through `COMPUTE_FRAMES` | mod classes fail to link (`GuiContainer` and friends are stripped server-side, so merge types dead-end) | untouched classes pass through byte-identical |
+| log4j upgraded to 2.17.2 while mods target 2.0-beta9 | `NoSuchMethodError` in mod static initializers (GregTech), `NoClassDefFoundError: core/helpers/Loader` (CoFHCore) | call bridge for removed factory signatures + type remap for the moved `core.helpers` package |
+
+Also fixed along the way: launchwrapper's transformer list is now copy-on-write
+(coremods register transformers *during* iteration — a stock CME), and a failed
+launch prints its real stack trace instead of being swallowed by `halt()`.
+
+### Architectural: block-id width and lighting
+
+These two cannot be papered over — they are competing implementations of the
+same subsystem, so one side has to give:
+
+- **Block ids.** `MemSlot` packs a block as 12 bits of id plus 4 of metadata:
+  4096 ids, exactly vanilla's ceiling. Modern large packs exceed it — GTNH asks
+  for id **10617** — and solve it with **EndlessIDs**/NEID, which `@Shadow` the
+  vanilla `blockLSBArray`/`blockMSBArray` arrays and extend them. This core has
+  no such arrays (blocks live off-heap), so EndlessIDs fails to apply, and
+  without it the pack runs out of ids. **GTNH-class packs are therefore out of
+  reach until `MemSlot` itself carries wider ids** — a chunk-format change, and
+  the natural next big step if such packs are a goal.
+- **Lighting.** ArchaicFix's Phosphor backport reads, caches and assigns the
+  vanilla `NibbleArray` light fields. Chunk light is off-heap here and
+  `getSkylightArray()` materializes a copy, so Phosphor cannot work against it:
+  set `B:enablePhosphor=false` in `config/archaicfix.cfg`. The rest of
+  ArchaicFix is fine.
+
+Everything else in the pack — 293 of 294 mods including GregTech, Thaumcraft,
+AE2, Railcraft, Forestry and the whole GTNH coremod stack — got through mod
+construction and pre-init on this core.
