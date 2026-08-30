@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -33,12 +32,13 @@ import cpw.mods.fml.relauncher.SideOnly;
  * same tweaker flow, but builds the {@link LaunchClassLoader} from the class
  * path instead of casting the app class loader.
  *
- * <p>It is also loaded and run from inside {@link #createBootClassLoader() a
- * URLClassLoader of its own}, which is what makes the rest of the stack work
- * unchanged: launchwrapper and FML both assume the loader that loaded them is a
- * URLClassLoader, and Mixin refuses to start if its tweaker did not come from
- * the same loader as {@code Launch}. Running the whole launch inside one
- * URLClassLoader gives all three what Java 8 gives them for free.
+ * <p>The class path is read the way launchwrapper reads it on Java 8 - where it
+ * asks the application class loader for its URLs - which means the entries the
+ * jar manifests chain in through {@code Class-Path} as well as those on the
+ * command line. Everything else about the arrangement is left exactly as stock:
+ * the LaunchClassLoader still delegates its excluded packages to the
+ * application class loader, because that is the loader FML extends and the one
+ * Mixin checks its tweaker against.
  *
  * <p>Only used when ServerLaunchWrapper detects a non-URLClassLoader app
  * loader; on Java 8 the stock launchwrapper path runs unchanged.
@@ -129,27 +129,6 @@ public class ModernJavaLaunch
 	}
 
 	/**
-	 * The loader everything below the entry point runs in.
-	 *
-	 * <p>From Java 9 the application class loader is
-	 * {@code jdk.internal.loader.ClassLoaders$AppClassLoader}: not a
-	 * URLClassLoader, and not extendable. Three things in this stack need it to
-	 * be both - launchwrapper casts it, FML adds coremod jars to it so that
-	 * cascading tweakers can be loaded, and Mixin refuses to start unless its
-	 * tweaker came from the same loader that loaded {@code Launch}. Rather than
-	 * work around each of those separately, the class path is rebuilt in a
-	 * URLClassLoader and the launch runs inside it, where all three hold.
-	 *
-	 * <p>Its parent is the platform loader, not the application loader, so that
-	 * {@code Launch} and everything else really is defined here rather than
-	 * inherited from a loader FML cannot extend.
-	 */
-	public static URLClassLoader createBootClassLoader()
-	{
-		return new URLClassLoader(classPathUrls(), platformClassLoader());
-	}
-
-	/**
 	 * The application class path, the way the application loader sees it: the
 	 * {@code java.class.path} entries plus whatever their manifests chain in
 	 * through {@code Class-Path}, which is how the server jar reaches
@@ -228,16 +207,4 @@ public class ModernJavaLaunch
 		}
 	}
 
-	/** Java 9+ only, and this class only ever runs there; null means bootstrap. */
-	private static ClassLoader platformClassLoader()
-	{
-		try
-		{
-			return (ClassLoader) ClassLoader.class.getMethod("getPlatformClassLoader").invoke(null);
-		}
-		catch(Exception e)
-		{
-			return null;
-		}
-	}
 }

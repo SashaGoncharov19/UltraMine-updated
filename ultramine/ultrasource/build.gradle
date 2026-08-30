@@ -305,7 +305,7 @@ task generateStartScripts {
 			'JAVA_MAJOR=$(java -version 2>&1 | sed -n \'s/.*version "\\([0-9]*\\).*/\\1/p\' | head -n 1)\n' +
 			'[ "$JAVA_MAJOR" = "1" ] && JAVA_MAJOR=8\n' +
 			'if [ "${JAVA_MAJOR:-8}" -ge 9 ] 2>/dev/null; then\n' +
-			'  JVM_ARGS="$JVM_ARGS --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"\n' +
+			'  JVM_ARGS="$JVM_ARGS --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED"\n' +
 			'fi\n' +
 			'if [ "${JAVA_MAJOR:-8}" -ge 23 ] 2>/dev/null; then\n' +
 			'  JVM_ARGS="$JVM_ARGS --sun-misc-unsafe-memory-access=allow"\n' +

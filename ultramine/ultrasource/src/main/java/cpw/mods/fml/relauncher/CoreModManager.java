@@ -16,6 +16,7 @@ import java.io.File;
 import java.io.FileFilter;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
@@ -394,38 +395,79 @@ public class CoreModManager {
 
 	/**
 	 * A cascading tweaker is loaded through the class loader that
-	 * {@link LaunchClassLoader} delegates excluded packages to, not through the
-	 * LaunchClassLoader itself - so its jar has to reach that loader as well.
+	 * {@link LaunchClassLoader} delegates excluded packages to - the application
+	 * class loader - not through the LaunchClassLoader itself, so its jar has to
+	 * reach that loader as well.
 	 *
-	 * <p>That loader has to be a URLClassLoader for this to be possible at all.
-	 * On Java 8 it is, because it is the application class loader. From Java 9
-	 * the application loader is
-	 * {@code jdk.internal.loader.ClassLoaders$AppClassLoader}, which is neither -
-	 * so the server does not launch from it: {@code ModernJavaLaunch} rebuilds
-	 * the class path in a URLClassLoader and runs the whole launch inside it,
-	 * and this finds that one here exactly as it finds the application loader on
-	 * Java 8.
+	 * <p>Stock FML reflects {@code URLClassLoader.addURL} onto it, which works
+	 * because on Java 8 the application class loader is a URLClassLoader. From
+	 * Java 9 it is {@code jdk.internal.loader.ClassLoaders$AppClassLoader} and
+	 * that call fails - taking with it the two statements after it, so every
+	 * coremod shipping a cascading tweaker silently never loads and the first
+	 * class from one of them ends the launch.
 	 *
-	 * <p>Anything else is reported as itself rather than as the
-	 * IllegalArgumentException a blind reflective call would raise twenty times
-	 * over, once per coremod, with no hint of what is wrong.
+	 * <p>That loader is still extendable, just not as a URLClassLoader: it is
+	 * what {@code Instrumentation.appendToSystemClassLoaderSearch} drives, and
+	 * the method behind it can be called directly. Doing that gives Java 9+ the
+	 * same outcome Java 8 has - the jar really is on the application class path,
+	 * loaded by the same loader as everything else - rather than an arrangement
+	 * of our own that the rest of the stack would have to be taught about.
+	 *
+	 * <p>It needs {@code --add-opens java.base/jdk.internal.loader=ALL-UNNAMED},
+	 * which the generated start scripts pass. Without it there is no way to
+	 * extend that loader at all, and this says so once rather than raising the
+	 * same opaque reflection error per coremod.
 	 */
-	private static void addToTweakerClassPath(LaunchClassLoader classLoader, URL url) throws Exception
+	private static void addToTweakerClassPath(LaunchClassLoader classLoader, File coreMod) throws Exception
 	{
-		ClassLoader loaderOfLaunchwrapper = classLoader.getClass().getClassLoader();
-		if (!(loaderOfLaunchwrapper instanceof URLClassLoader))
+		ClassLoader appClassLoader = classLoader.getClass().getClassLoader();
+
+		if (appClassLoader instanceof URLClassLoader)
 		{
-			throw new IllegalStateException("launchwrapper was loaded by " + loaderOfLaunchwrapper.getClass().getName()
-					+ ", which cannot be extended, so a cascading tweaker cannot be made visible to it. "
-					+ "Mods that ship one will not load.");
+			if (ADDURL == null)
+			{
+				ADDURL = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
+				ADDURL.setAccessible(true);
+			}
+			ADDURL.invoke(appClassLoader, coreMod.toURI().toURL());
+			return;
 		}
 
-		if (ADDURL == null)
+		Exception failure = null;
+
+		//Java 9+: the same door the instrumentation API uses
+		try
 		{
-			ADDURL = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
-			ADDURL.setAccessible(true);
+			Method append = appClassLoader.getClass().getDeclaredMethod("appendToClassPathForInstrumentation", String.class);
+			append.setAccessible(true);
+			append.invoke(appClassLoader, coreMod.getAbsolutePath());
+			return;
 		}
-		ADDURL.invoke(loaderOfLaunchwrapper, url);
+		catch (Exception e)
+		{
+			failure = e;
+		}
+
+		//and its underlying search path, for a JVM that spells the door differently
+		try
+		{
+			Field ucpField = Class.forName("jdk.internal.loader.BuiltinClassLoader").getDeclaredField("ucp");
+			ucpField.setAccessible(true);
+			Object ucp = ucpField.get(appClassLoader);
+			Method addURL = ucp.getClass().getDeclaredMethod("addURL", URL.class);
+			addURL.setAccessible(true);
+			addURL.invoke(ucp, coreMod.toURI().toURL());
+			return;
+		}
+		catch (Exception e)
+		{
+			//report the first failure: it is the one that names the missing --add-opens
+		}
+
+		throw new IllegalStateException("Cannot extend the application class loader ("
+				+ appClassLoader.getClass().getName() + "), so a cascading tweaker cannot be loaded. "
+				+ "Start the server with --add-opens java.base/jdk.internal.loader=ALL-UNNAMED "
+				+ "(the generated start scripts do). Cause: " + failure, failure);
 	}
 
 	private static void handleCascadingTweak(File coreMod, JarFile jar, String cascadedTweaker, LaunchClassLoader classLoader, Integer sortingOrder)
@@ -433,7 +475,7 @@ public class CoreModManager {
 		try
 		{
 			// Have to manually stuff the tweaker into the parent classloader
-			addToTweakerClassPath(classLoader, coreMod.toURI().toURL());
+			addToTweakerClassPath(classLoader, coreMod);
 			classLoader.addURL(coreMod.toURI().toURL());
 			CoreModManager.tweaker.injectCascadingTweak(cascadedTweaker);
 			tweakSorting.put(cascadedTweaker,sortingOrder);
