@@ -116,6 +116,45 @@ jobs:
             ultramine/ultrasource/build/release/*.jar
             ultramine/ultrasource/build/release/*.zip
 
+      # Release body = docs/release-notes/v<version>.md (when the file exists —
+      # human-written "what's in this update") + the standard verification section.
+      - name: Compose release body
+        run: |
+          BODY=ultramine/ultrasource/build/release_body.md
+          NOTES='docs/release-notes/v${{ steps.ver.outputs.version }}.md'
+          : > "$BODY"
+          if [ -f "$NOTES" ]; then
+            cat "$NOTES" >> "$BODY"
+            echo >> "$BODY"
+          fi
+          cat >> "$BODY" <<'EOF'
+          ---
+
+          Собрано автоматически на GitHub Actions из тега `v${{ steps.ver.outputs.version }}`
+          ([лог сборки](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
+          Никаких вручную загруженных бинарников — всё строится из исходников этого репозитория.
+
+          **`*-server-dist.zip`** — готовый к запуску сервер (jar + `libraries/` + start-скрипты).
+          **`*-server.jar`** — только ядро (нужна папка `libraries/` рядом). `*-dev.jar` — MCP-имена, для разработки.
+
+          ### Проверка целостности / Verify integrity
+
+          ```bash
+          sha256sum -c SHA256SUMS.txt --ignore-missing
+          ```
+
+          ### Проверка происхождения сборки / Verify build provenance
+
+          Каждый файл криптографически привязан к этому коммиту и workflow-запуску
+          (GitHub artifact attestations). Проверка через [gh CLI](https://cli.github.com/):
+
+          ```bash
+          gh attestation verify <файл> --repo ${{ github.repository }}
+          ```
+
+          Подробнее: [docs/07-ci-and-releases.md](${{ github.server_url }}/${{ github.repository }}/blob/v${{ steps.ver.outputs.version }}/docs/07-ci-and-releases.md)
+          EOF
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -124,27 +163,4 @@ jobs:
           files: ultramine/ultrasource/build/release/*
           fail_on_unmatched_files: true
           generate_release_notes: true
-          body: |
-            Собрано автоматически на GitHub Actions из тега `v${{ steps.ver.outputs.version }}`
-            ([лог сборки](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
-            Никаких вручную загруженных бинарников — всё строится из исходников этого репозитория.
-
-            **`*-server-dist.zip`** — готовый к запуску сервер (jar + `libraries/` + start-скрипты).
-            **`*-server.jar`** — только ядро (нужна папка `libraries/` рядом). `*-dev.jar` — MCP-имена, для разработки.
-
-            ### Проверка целостности / Verify integrity
-
-            ```bash
-            sha256sum -c SHA256SUMS.txt --ignore-missing
-            ```
-
-            ### Проверка происхождения сборки / Verify build provenance
-
-            Каждый файл криптографически привязан к этому коммиту и workflow-запуску
-            (GitHub artifact attestations). Проверка через [gh CLI](https://cli.github.com/):
-
-            ```bash
-            gh attestation verify <файл> --repo ${{ github.repository }}
-            ```
-
-            Подробнее: [docs/07-ci-and-releases.md](${{ github.server_url }}/${{ github.repository }}/blob/v${{ steps.ver.outputs.version }}/docs/07-ci-and-releases.md)
+          body_path: ultramine/ultrasource/build/release_body.md

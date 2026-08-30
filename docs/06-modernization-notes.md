@@ -70,13 +70,15 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 - Kept on purpose: guava 17, gson 2.2.4, Scala 2.11 (1.7.10 mods compile against these exact versions).
 - Still to re-test manually on a real setup: JDBC player-data storage (`inSQLServerStorage`, not covered by the CI smoke test), RCON, console colors on Windows terminals, backups under load.
 
-### Stage 2 — modern JVM support (large, optional)
-Only worth it if running mods on Java 17/21 is a goal (prior art: the GTNewHorizons 1.7.10 stack — lwjgl3ify/RFB — proves it's possible but they patch launchwrapper, coremods and many mods):
-- ASM 5 → 9.x everywhere (runtime transformers + buildSrc).
-- `ServiceDelegateGenerator`: `Unsafe.defineAnonymousClass` → `MethodHandles.Lookup.defineHiddenClass` (JDK 15+) with a Java-8 fallback.
-- `UnsafeChunkAlloc`: still works through 21 (with warnings); plan an FFM (`java.lang.foreign`) or `ByteBuffer.allocateDirect` backend before JDK 24+.
-- `FMLSecurityManager` (`cpw/mods/fml/common/FMLSecurityManager`): SecurityManager is permanently disabled in JDK 24 — must become a no-op.
-- `--add-opens` set for launchwrapper's classloader tricks; jline/jansi upgrades; Scala mods will simply not work.
+### Stage 2 — modern JVM support, target: **Java 25** (large; agreed direction, incremental)
+Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
+1. **ASM 5 → 9.x** everywhere (runtime transformers, `ServiceDelegateGenerator`, buildSrc) — prerequisite for even reading modern class files. Low risk, works on Java 8.
+2. **`ServiceDelegateGenerator`**: `Unsafe.defineAnonymousClass` (removed in JDK 15) → `MethodHandles.Lookup.defineHiddenClass`, with a Java-8 fallback path.
+3. **`FMLSecurityManager`** (`cpw/mods/fml/common/FMLSecurityManager`): the SecurityManager API is permanently disabled since JDK 24 (JEP 486) — must become a no-op on modern JVMs.
+4. **`UnsafeChunkAlloc`** off-heap storage: `sun.misc.Unsafe` memory methods are deprecated-for-removal (JEP 498) — still functional on 25 with warnings; add an FFM (`java.lang.foreign`) or `ByteBuffer.allocateDirect` backend behind the existing `ChunkAllocService` SPI.
+5. Launch layer: `--add-opens`/`--add-exports` set for launchwrapper's classloader tricks (ship it in generated start scripts), jline/jansi refresh if the console breaks.
+6. Known casualties on modern JVMs: Scala 2.11 mods (scala-compiler won't run), and any coremod generating pre-Java-8-era bytecode; document per-mod findings as they surface.
+CI: add a second smoke job booting the same build on Java 25 once increments 1–3 land — that's the acceptance test for this stage.
 
 ### Stage 3 — functional updates (product decisions, see D)
 
