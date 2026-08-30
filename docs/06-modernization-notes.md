@@ -72,7 +72,40 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ### Stage 2 — modern JVM support, target: **Java 25** — **CORE MILESTONE REACHED**
 
-**The server boots to `Done` on Temurin 25 (and still on Java 8) — both are now mandatory CI gates on every build.** Landed beyond the increments below: a launchwrapper `URLClassLoader`-cast workaround (`ModernJavaLaunch` reimplements the tweaker flow for Java 9+, publishing the live `Tweaks` blackboard list FML mutates; Java 8 uses the stock path untouched), `@ObjectHolder` static-final writes via `Unsafe` (the `sun.reflect.ReflectionFactory` path is gone since Java 9), and an ASM 9 strict-descriptor fix in `EventSubscriptionTransformer` (`getObjectType` for internal names — ASM 5 silently tolerated the misuse and every Event subclass transform was failing). Remaining Stage 2 items: FFM backend for the off-heap chunk allocator (before JDK removes Unsafe memory ops), `CoreModManager.handleCascadingTweak`'s parent-loader `addURL` reflection (affects only coremods shipping cascading tweakers), and real modpack testing on 25.
+**The server boots to `Done` on Temurin 25 (and still on Java 8) — both are now mandatory CI gates on every build.** Landed beyond the increments below: a launchwrapper `URLClassLoader`-cast workaround (`ModernJavaLaunch` reimplements the tweaker flow for Java 9+, publishing the live `Tweaks` blackboard list FML mutates; Java 8 uses the stock path untouched), `@ObjectHolder` static-final writes via `Unsafe` (the `sun.reflect.ReflectionFactory` path is gone since Java 9), and an ASM 9 strict-descriptor fix in `EventSubscriptionTransformer` (`getObjectType` for internal names — ASM 5 silently tolerated the misuse and every Event subclass transform was failing). Remaining Stage 2 items: FFM backend for the off-heap chunk allocator (before JDK removes Unsafe memory ops), and coremod-heavy packs on Java 25 - see below.
+#### Coremod-heavy packs on Java 25: where it stands
+
+The bare server boots on Java 25 and is a CI gate. A pack the size of GT New
+Horizons does not, yet, and the reason is one thing in three costumes: from Java
+9 the application class loader is `jdk.internal.loader.ClassLoaders$AppClassLoader`,
+and launchwrapper, FML and Mixin all assume the loader that loaded them is a
+`URLClassLoader`. Each was diagnosed from a real boot, and each fix moved the
+failure to the next one:
+
+1. `IllegalArgumentException: ... AppClassLoader is not an instance of
+   java.net.URLClassLoader`, twenty times over, then `NoClassDefFoundError` on a
+   coremod's own class. FML puts coremod jars on that loader so cascading
+   tweakers can be found; the reflective `addURL` cannot work there.
+2. `MixinException: Attempted to init the mixin environment in the wrong
+   classloader`. Mixin compares the loader of its tweaker against the loader of
+   `Launch`; splicing an extra loader in to solve (1) is by definition not that
+   one. Fixed properly by running the whole launch inside one `URLClassLoader`
+   built from the class path (`ModernJavaLaunch.createBootClassLoader`), which
+   is the arrangement Java 8 has by construction - so FML's stock reflection
+   works again and Mixin's check passes.
+3. **Where it stops today:** `ClassCastException: java.net.URLClassLoader cannot
+   be cast to LaunchClassLoader` in `ModClassLoader`, reached from
+   `FMLCommonHandler.<clinit>` - `cpw.mods.fml.common.Loader` ends up defined by
+   the boot loader rather than by the `LaunchClassLoader`, because a coremod jar
+   added to the boot loader resolves FML's classes through it. The same jar
+   reaches the application loader on Java 8 without this happening, so the
+   difference is in how launchwrapper's own delegation orders the two - which
+   needs launchwrapper's source in hand to settle rather than another guess.
+
+None of this affects Java 8, where the stock path runs untouched, and none of it
+affects a server without coremods on Java 25, which is covered by the smoke gate
+on every build. **Run coremod-heavy packs on Java 8 until this is finished.**
+
 Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
 1. **ASM 5 → 9.x** — **DONE** (runtime): `asm-debug-all:5.0.3` replaced with `asm`/`asm-tree`/`asm-commons` **9.10.1**; the only removed-API usages (`RemappingClassAdapter`/`RemappingMethodAdapter` in FML's `DeobfuscationTransformer`/`FMLRemappingAdapter`) ported to `ClassRemapper`/`MethodRemapper`. The transform pipeline can now parse modern class files. buildSrc deliberately stays on ASM 5 + SpecialSource 1.7.3 (build-time only, runs on JDK 8 in CI; SpecialSource 1.7.3 itself needs the old ASM API).
 2. **`ServiceDelegateGenerator`** — **landed**: on Java 15+ it now defines service delegates via `MethodHandles.privateLookupIn(...).defineHiddenClass(...)` (resolved reflectively so the Java 8 baseline still compiles/runs; on 8–14 the old `Unsafe.defineAnonymousClass` path is used). Generated class names are normalized into the lookup class's package (a hidden-class requirement). Validated by the Java 25 smoke job.

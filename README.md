@@ -72,6 +72,12 @@ all 294 mods, nothing excluded, ArchaicFix's Phosphor left enabled, on Java 8.
 CI reproduces it - dispatch the Build workflow with `modpack_url=gtnh-latest`
 and `chunk_storage=vanilla`.
 
+**Run coremod-heavy packs on Java 8.** The bare server runs on Java 8 through 25
+and both are CI gates, but a pack that ships coremods does not boot on Java 9+
+yet: launchwrapper, FML and Mixin all assume the loader that loaded them is a
+`URLClassLoader`, which no JVM after 8 provides. See
+[docs/06](docs/06-modernization-notes.md) for how far it gets and what is left.
+
 Set it on the server's command line, before a world is generated:
 
 ```
