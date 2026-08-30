@@ -159,6 +159,12 @@ public class ContainerEnchantment extends Container
 
 	public boolean enchantItem(EntityPlayer p_75140_1_, int p_75140_2_)
 	{
+		/* ULTRAMINE: the button id comes straight from C11PacketEnchantItem - out
+		   of range it crashes the server on the enchantLevels access. */
+		if (p_75140_2_ < 0 || p_75140_2_ >= this.enchantLevels.length)
+		{
+			return false;
+		}
 		ItemStack itemstack = this.tableInventory.getStackInSlot(0);
 
 		if (this.enchantLevels[p_75140_2_] > 0 && itemstack != null && (p_75140_1_.experienceLevel >= this.enchantLevels[p_75140_2_] || p_75140_1_.capabilities.isCreativeMode))
