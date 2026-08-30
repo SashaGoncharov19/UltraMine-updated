@@ -129,6 +129,13 @@ silently did not apply, which is worse than not starting.
 **So: run coremod-heavy packs on Java 8.** The bare server runs on Java 8
 through 25 and both are CI gates.
 
+**Decision: launchwrapper stays.** Going the other way - replacing it, the way
+GTNH's own stack does - would mean owning a class loader and a mod-patching
+layer for a fourteen-year-old ecosystem, and every mod that works today would
+have to be re-proven against it. The core keeps stock launchwrapper and fixes
+what is on its own side of the line; packs that need a modern JVM *and*
+coremods are what GTNH's bootstrap exists for.
+
 Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
 1. **ASM 5 → 9.x** — **DONE** (runtime): `asm-debug-all:5.0.3` replaced with `asm`/`asm-tree`/`asm-commons` **9.10.1**; the only removed-API usages (`RemappingClassAdapter`/`RemappingMethodAdapter` in FML's `DeobfuscationTransformer`/`FMLRemappingAdapter`) ported to `ClassRemapper`/`MethodRemapper`. The transform pipeline can now parse modern class files. buildSrc deliberately stays on ASM 5 + SpecialSource 1.7.3 (build-time only, runs on JDK 8 in CI; SpecialSource 1.7.3 itself needs the old ASM API).
 2. **`ServiceDelegateGenerator`** — **landed**: on Java 15+ it now defines service delegates via `MethodHandles.privateLookupIn(...).defineHiddenClass(...)` (resolved reflectively so the Java 8 baseline still compiles/runs; on 8–14 the old `Unsafe.defineAnonymousClass` path is used). Generated class names are normalized into the lookup class's package (a hidden-class requirement). Validated by the Java 25 smoke job.
