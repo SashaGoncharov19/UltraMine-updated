@@ -72,7 +72,7 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ### Stage 2 — modern JVM support, target: **Java 25** (large; agreed direction, incremental)
 Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
-1. **ASM 5 → 9.x** everywhere (runtime transformers, `ServiceDelegateGenerator`, buildSrc) — prerequisite for even reading modern class files. Low risk, works on Java 8.
+1. **ASM 5 → 9.x** — **DONE** (runtime): `asm-debug-all:5.0.3` replaced with `asm`/`asm-tree`/`asm-commons` **9.10.1**; the only removed-API usages (`RemappingClassAdapter`/`RemappingMethodAdapter` in FML's `DeobfuscationTransformer`/`FMLRemappingAdapter`) ported to `ClassRemapper`/`MethodRemapper`. The transform pipeline can now parse modern class files. buildSrc deliberately stays on ASM 5 + SpecialSource 1.7.3 (build-time only, runs on JDK 8 in CI; SpecialSource 1.7.3 itself needs the old ASM API).
 2. **`ServiceDelegateGenerator`**: `Unsafe.defineAnonymousClass` (removed in JDK 15) → `MethodHandles.Lookup.defineHiddenClass`, with a Java-8 fallback path.
 3. **`FMLSecurityManager`** (`cpw/mods/fml/common/FMLSecurityManager`): the SecurityManager API is permanently disabled since JDK 24 (JEP 486) — must become a no-op on modern JVMs.
 4. **`UnsafeChunkAlloc`** off-heap storage: `sun.misc.Unsafe` memory methods are deprecated-for-removal (JEP 498) — still functional on 25 with warnings; add an FFM (`java.lang.foreign`) or `ByteBuffer.allocateDirect` backend behind the existing `ChunkAllocService` SPI.

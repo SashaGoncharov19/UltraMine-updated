@@ -53,7 +53,11 @@ configurations {
 dependencies {
 	compileCommon 'net.minecraft:launchwrapper:1.11'
 	compileCommon 'com.google.code.findbugs:jsr305:1.3.9'
-	compileCommon 'org.ow2.asm:asm-debug-all:5.0.3'
+	//ASM 9 can read modern class files (Java 25 era) — a Stage 2 prerequisite.
+	//buildSrc intentionally stays on ASM 5 + SpecialSource 1.7.3: build-time only, JDK 8.
+	compileCommon 'org.ow2.asm:asm:9.10.1'
+	compileCommon 'org.ow2.asm:asm-tree:9.10.1'
+	compileCommon 'org.ow2.asm:asm-commons:9.10.1'
 	compileCommon 'com.typesafe.akka:akka-actor_2.11:2.3.3'
 	compileCommon 'com.typesafe:config:1.2.1'
 	compileCommon 'org.scala-lang:scala-actors-migration_2.11:1.1.0'
