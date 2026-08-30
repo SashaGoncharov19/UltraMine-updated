@@ -121,6 +121,10 @@ test {
 		events 'passed', 'skipped', 'failed'
 		exceptionFormat 'full'
 	}
+	//Some behaviour is a JVM-wide startup decision - which chunk storage backend
+	//the server runs, for one - so a class that pins it down needs a JVM that has
+	//not already resolved it.
+	forkEvery = 1
 	//the off-heap allocator and the modern-Java shims need the same JVM access
 	//the server itself asks for
 	if (JavaVersion.current().isJava9Compatible()) {

@@ -25,7 +25,7 @@ import org.ultramine.server.chunk.AntiXRayService;
 import org.ultramine.server.chunk.ChunkGenerationQueue;
 import org.ultramine.server.chunk.ChunkProfiler;
 import org.ultramine.server.chunk.alloc.ChunkAllocService;
-import org.ultramine.server.chunk.alloc.unsafe.UnsafeChunkAlloc;
+import org.ultramine.server.chunk.alloc.ChunkStorageMode;
 import org.ultramine.server.data.Databases;
 import org.ultramine.server.data.ServerDataLoader;
 import org.ultramine.server.data.player.PlayerCoreData;
@@ -38,6 +38,9 @@ import org.ultramine.server.internal.UMEventHandler;
 import org.ultramine.server.internal.OpBasedPermissions;
 import org.ultramine.server.tools.ItemBlocker;
 import org.ultramine.server.util.GlobalExecutors;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.EventBus;
@@ -63,6 +66,16 @@ import org.ultramine.core.permissions.Permissions;
 
 public class UltramineServerModContainer extends DummyModContainer
 {
+	private static final Logger log = LogManager.getLogger();
+
+	/*
+	 * Coremods that patch vanilla's chunk arrays. None of them can apply while
+	 * chunk sections live off-heap, and a pack that ships them is a pack that
+	 * needs them - so their presence in the default mode is worth shouting about
+	 * rather than silently switching storage under an existing world.
+	 */
+	private static final String[] CHUNK_STORAGE_COREMODS = {"chunkapi", "endlessids", "neid", "archaicfix"};
+
 	private static UltramineServerModContainer instance;
 	@InjectService private static ServiceManager services;
 	@InjectService private static Permissions perms;
@@ -106,7 +119,9 @@ public class UltramineServerModContainer extends DummyModContainer
 	{
 		try
 		{
-			services.register(ChunkAllocService.class, new UnsafeChunkAlloc(), 0);
+			ChunkStorageMode storageMode = ChunkStorageMode.current();
+			services.register(ChunkAllocService.class, storageMode.createAlloc(), 0);
+			announceChunkStorage(storageMode);
 			services.register(AntiXRayService.class, new AntiXRayService.EmptyImpl(), 0);
 			if(e.getSide().isServer())
 			{
@@ -134,6 +149,36 @@ public class UltramineServerModContainer extends DummyModContainer
 		{
 			controller.errorOccurred(this, t);
 		}
+	}
+
+	/**
+	 * Say which chunk storage this server is running, and warn when the mods
+	 * loaded want the other one. This never switches the mode on its own: chunk
+	 * storage is picked before any world is opened, and changing it for someone
+	 * is not a decision a startup heuristic gets to make.
+	 */
+	private static void announceChunkStorage(ChunkStorageMode mode)
+	{
+		if(mode == ChunkStorageMode.VANILLA)
+		{
+			log.info("Chunk storage: vanilla heap arrays (compatibility mode). Coremods that patch chunk storage will apply; "
+					+ "chunk sections cost heap and GC time instead of off-heap memory.");
+			return;
+		}
+
+		log.info("Chunk storage: off-heap slots (default).");
+
+		List<String> present = new java.util.ArrayList<String>();
+		for(String modid : CHUNK_STORAGE_COREMODS)
+			if(cpw.mods.fml.common.Loader.isModLoaded(modid))
+				present.add(modid);
+
+		if(!present.isEmpty())
+			log.warn("These mods patch vanilla chunk storage and cannot apply while chunk sections are off-heap: {}. "
+					+ "They will either fail to load or silently do nothing. If this pack needs them - large packs need "
+					+ "EndlessIDs/NEID for block ids above 4095 - start the server with -D{}=vanilla. "
+					+ "Note that this changes how chunks are held in memory, so decide it before a world is generated.",
+					present, ChunkStorageMode.PROPERTY);
 	}
 
 	@Subscribe

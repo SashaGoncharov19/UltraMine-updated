@@ -220,11 +220,20 @@ worlds needs to know it is doing that.
 
 ### Order of work
 
-1. Extend `MemSlotTest` to the target behaviour first, so the change has to turn
-   a red test green rather than being declared correct afterwards.
-2. Introduce the backend seam in `ExtendedBlockStorage` with the off-heap path
-   as the only implementation — no behaviour change, all tests still green.
-3. Add the vanilla-shaped backend, with the fields present and patchable.
+1. ~~Extend `MemSlotTest` to the target behaviour first, so the change has to
+   turn a red test green rather than being declared correct afterwards.~~ Done:
+   the old `MemSlotTest` is now `MemSlotContractTest`, an abstract contract run
+   against both backends, extended to cover the bulk array paths (chunk save,
+   chunk packet) that the two have to agree on.
+2. ~~Introduce the backend seam.~~ Done: `ChunkStorageMode` picks the backend
+   from `-Dorg.ultramine.chunk.storage`, and `ChunkAllocService` is registered
+   from it. The off-heap path is unchanged and still the default.
+3. ~~Add the vanilla-shaped backend, with the fields present and patchable.~~
+   Done: `HeapMemSlot` stores a section in vanilla's five arrays, and
+   `ExtendedBlockStorage` publishes them as the vanilla-named fields. The
+   arrays *are* the section — a write through one is a write to the world —
+   and replacing one replaces the section, on every path including the raw
+   slot the bulk code reads.
 4. Boot the GTNH pack in compatibility mode in CI (the modpack job already
    exists) and work through whatever the pack then hits.
 5. Only if a wider *off-heap* format still looks worthwhile after that: add a
@@ -232,6 +241,33 @@ worlds needs to know it is doing that.
    memory), the matching NBT tag with backward compatibility for chunks that
    lack it, and the packet format — as a separate, opt-in step, with a
    documented migration path. Ids that fit today must keep loading unchanged.
+
+### How the two views are kept honest
+
+In compatibility mode a section exists twice over: as the five fields a coremod
+can see and assign, and as the `MemSlot` the core's bulk paths read. They are
+the same arrays, so ordinary reads and writes cannot disagree. The one way they
+could is a coremod assigning a field directly — so `getSlot()`, which every
+bulk path goes through, realigns the slot with the fields first (five reference
+comparisons). A null MSB or sky-light field, which vanilla reads as "all zero",
+zeroes the slot's copy once on that transition rather than on every read.
+
+Two deliberate divergences from vanilla, both in the safe direction: sky light
+is always allocated (the off-heap slot always carries it and the core reads it
+without checking, so a null would be a crash in the Nether rather than a
+saving), and the MSB array is allocated up front instead of on the first block
+above id 255.
+
+### Open question for step 4
+
+Where a mod widens block storage beyond the arrays — EndlessIDs replaces them
+with a wider representation of its own and serializes it through ChunkAPI — the
+core's raw paths (`ChunkSnapshot`, the chunk packet, `AnvilChunkLoader`) still
+read the 12-bit arrays through `getSlot()`. Whether that matters depends on
+whether such a mod keeps the vanilla arrays as the low bits of the same data or
+abandons them; booting the pack is what answers it, and the fix, if one is
+needed, is to route those paths through `ExtendedBlockStorage`'s accessors,
+which the mod has patched.
 
 ### What each step must not break
 

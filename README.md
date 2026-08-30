@@ -52,11 +52,35 @@ Artifacts land in `build/libs/` and `build/distributions/`. The build pipeline (
 - **[docs/README.md](docs/README.md)** — full English codebase documentation: architecture, launch flow, package map, build system, modernization roadmap
 - Legacy Russian wiki (configuration guides): [Quickstart](https://github.com/4gname/UltraMine/wiki/Quickstart), [server.yml](https://github.com/4gname/UltraMine/wiki/Server.yml), [worlds.yml](https://github.com/4gname/UltraMine/wiki/Worlds.yml), [permissions](https://github.com/4gname/UltraMine/wiki/Permissions), [itemblocker.yml](https://github.com/4gname/UltraMine/wiki/Itemblocker.yml), [mob spawning](https://github.com/4gname/UltraMine/wiki/Спавн-мобов-в-UltraMine), [launch options](https://github.com/4gname/UltraMine/wiki/Launching)
 
+## Chunk storage modes
+
+Chunk sections are stored one of two ways, chosen at startup:
+
+| `-Dorg.ultramine.chunk.storage=` | What a section is | When to use it |
+|---|---|---|
+| `offheap` *(default)* | one 12 KiB off-heap slot — no heap, no GC | anything that fits in vanilla's 4096 block ids |
+| `vanilla` | vanilla's five heap arrays (`blockLSBArray`, `blockMSBArray`, `blockMetadataArray`, `blocklightArray`, `skylightArray`) | packs whose coremods patch chunk storage |
+
+Both hold the identical packing, so a world is the same world in either mode.
+The difference is what mods can reach: off-heap there are no arrays to patch, so
+coremods built against vanilla's chunk storage cannot apply. `vanilla` gives
+them the live arrays they expect, at the cost of the memory and GC time
+off-heap storage exists to avoid.
+
+Set it on the server's command line, before a world is generated:
+
+```
+java -Dorg.ultramine.chunk.storage=vanilla -jar ultramine-server.jar
+```
+
+The server logs which mode it started in, and warns if it finds mods that need
+the other one. It never switches on its own.
+
 ## Known incompatible mods
 
-FastCraft, ServerTools, ForgeEssentials, DragonAPI, zzzzzcustomconfigs, NEID — they coremod-patch the same internals UltraMine rewrites (see [docs/04](docs/04-vanilla-forge-modifications.md)).
+FastCraft, ServerTools, ForgeEssentials, DragonAPI, zzzzzcustomconfigs — they coremod-patch the same internals UltraMine rewrites (see [docs/04](docs/04-vanilla-forge-modifications.md)).
 
-**ArchaicFix's Phosphor backport** (`enablePhosphor`, on by default) rewrites `ExtendedBlockStorage` to read and write vanilla's `NibbleArray` light fields directly. This core stores chunk light off-heap and has no such fields, so the two lighting implementations cannot coexist — set `B:enablePhosphor=false` in `config/archaicfix.cfg`. The rest of ArchaicFix works.
+**Mods that patch chunk storage** — EndlessIDs and NEID (which lift the 4095 block-id ceiling large packs run into), ChunkAPI, and **ArchaicFix's Phosphor backport** (`enablePhosphor`, on by default) — need `-Dorg.ultramine.chunk.storage=vanilla`. In the default off-heap mode they have nothing to patch: they either fail to load or silently do nothing, so leave Phosphor off (`B:enablePhosphor=false` in `config/archaicfix.cfg`) unless the server runs in `vanilla` mode. The rest of ArchaicFix works either way.
 
 ## Lineage & license
 
