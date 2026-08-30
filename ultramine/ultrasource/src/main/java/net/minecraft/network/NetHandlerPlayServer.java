@@ -904,6 +904,15 @@ public class NetHandlerPlayServer implements INetHandlerPlayServer
 
 		if (this.playerEntity.openContainer.windowId == p_147351_1_.func_149548_c() && this.playerEntity.openContainer.isPlayerNotUsingContainer(this.playerEntity))
 		{
+			/* ULTRAMINE: a crafted slot id crashes the server in Container.slotClick
+			   (raw inventorySlots.get). Only -999 (outside click) and real slots are
+			   ever sent by legitimate clients. */
+			int clickedSlot = p_147351_1_.func_149544_d();
+			if (clickedSlot != -999 && (clickedSlot < 0 || clickedSlot >= this.playerEntity.openContainer.inventorySlots.size()))
+			{
+				logger.warn("{} tried to click invalid slot {} in window {}", this.playerEntity.getCommandSenderName(), Integer.valueOf(clickedSlot), Integer.valueOf(p_147351_1_.func_149548_c()));
+				return;
+			}
 			ItemStack itemstack = this.playerEntity.openContainer.slotClick(p_147351_1_.func_149544_d(), p_147351_1_.func_149543_e(), p_147351_1_.func_149542_h(), this.playerEntity);
 
 			if (ItemStack.areItemStacksEqual(p_147351_1_.func_149546_g(), itemstack))

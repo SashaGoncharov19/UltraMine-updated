@@ -1,7 +1,12 @@
 package net.minecraftforge.common.util;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.*;
 import java.util.*;
+
+import sun.misc.Unsafe;
 
 import cpw.mods.fml.common.FMLLog;
 import net.minecraft.block.BlockPressurePlate.Sensitivity;
@@ -29,6 +34,12 @@ public class EnumHelper
 	private static Method newInstance            = null;
 	private static Method newFieldAccessor       = null;
 	private static Method fieldAccessorSet       = null;
+	//Modern JVMs (9+) have no usable sun.reflect accessors; enum constants are
+	//constructed through the trusted MethodHandles lookup instead (the "cannot
+	//reflectively create enum objects" check exists only in Constructor.newInstance,
+	//not in the MethodHandle layer), and fields are written through Unsafe.
+	private static MethodHandles.Lookup implLookup = null;
+	private static Unsafe unsafe                 = null;
 	private static boolean isSetup               = false;
 
 	//Some enums are decompiled with extra arguments, so lets check for that
@@ -127,7 +138,17 @@ public class EnumHelper
 		}
 		catch (Exception e)
 		{
-			e.printStackTrace();
+			try
+			{
+				Field implLookupField = MethodHandles.Lookup.class.getDeclaredField("IMPL_LOOKUP");
+				Unsafe u = getUnsafe();
+				implLookup = (MethodHandles.Lookup)u.getObject(u.staticFieldBase(implLookupField), u.staticFieldOffset(implLookupField));
+			}
+			catch (Exception e2)
+			{
+				e.printStackTrace();
+				e2.printStackTrace();
+			}
 		}
 
 		isSetup = true;
@@ -153,17 +174,63 @@ public class EnumHelper
 		parms[0] = value;
 		parms[1] = Integer.valueOf(ordinal);
 		System.arraycopy(additionalValues, 0, parms, 2, additionalValues.length);
+		if (implLookup != null)
+		{
+			Class<?>[] parameterTypes = new Class[additionalTypes.length + 2];
+			parameterTypes[0] = String.class;
+			parameterTypes[1] = int.class;
+			System.arraycopy(additionalTypes, 0, parameterTypes, 2, additionalTypes.length);
+			try
+			{
+				MethodHandle ctor = implLookup.findConstructor(enumClass, MethodType.methodType(void.class, parameterTypes));
+				return enumClass.cast(ctor.invokeWithArguments(parms));
+			}
+			catch (Exception e)
+			{
+				throw e;
+			}
+			catch (Throwable t)
+			{
+				throw new RuntimeException(t);
+			}
+		}
 		return enumClass.cast(newInstance.invoke(getConstructorAccessor(enumClass, additionalTypes), new Object[] {parms}));
 	}
 
+	private static Unsafe getUnsafe() throws Exception
+	{
+		if (unsafe == null)
+		{
+			Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
+			theUnsafe.setAccessible(true);
+			unsafe = (Unsafe)theUnsafe.get(null);
+		}
+		return unsafe;
+	}
+
+	//Unsafe writes need no FINAL stripping via Field.modifiers (reflection-filtered
+	//since Java 12) and no accessibility, so they work on Java 8 and 25 alike -
+	//including on java.base fields like the Class enum caches blanked below.
 	public static void setFailsafeFieldValue(Field field, Object target, Object value) throws Exception
 	{
-		field.setAccessible(true);
-		Field modifiersField = Field.class.getDeclaredField("modifiers");
-		modifiersField.setAccessible(true);
-		modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
-		Object fieldAccessor = newFieldAccessor.invoke(reflectionFactory, field, false);
-		fieldAccessorSet.invoke(fieldAccessor, target, value);
+		try
+		{
+			field.setAccessible(true);
+		}
+		catch (RuntimeException e)
+		{
+			//InaccessibleObjectException for java.base fields on modern JVMs -
+			//the Unsafe write below does not need accessibility.
+		}
+		Unsafe u = getUnsafe();
+		if (Modifier.isStatic(field.getModifiers()))
+		{
+			u.putObject(u.staticFieldBase(field), u.staticFieldOffset(field), value);
+		}
+		else
+		{
+			u.putObject(target, u.objectFieldOffset(field), value);
+		}
 	}
 
 	private static void blankField(Class<?> enumClass, String fieldName) throws Exception
@@ -172,7 +239,6 @@ public class EnumHelper
 		{
 			if (field.getName().contains(fieldName))
 			{
-				field.setAccessible(true);
 				setFailsafeFieldValue(field, enumClass, null);
 				break;
 			}

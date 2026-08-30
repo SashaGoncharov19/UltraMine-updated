@@ -27,7 +27,15 @@ public class NBTTagCompound extends NBTBase
 
 	public NBTTagCompound()
 	{
-		this(0);
+		//ULTRAMINE: this allocation stays inline and vanilla-shaped on purpose.
+		//Coremods rewrite exactly this `new HashMap()` inside <init>()V into their
+		//own map implementation and overwrite copy() to cast the field to it
+		//(GTNH's Hodgepodge does), so every other path must obtain its map from
+		//this constructor - otherwise the field and the patched copy() disagree.
+		if (USE_KOLOBOKE_MAP)
+			createMap(0);
+		else
+			this.tagMap = new HashMap();
 	}
 
 	void write(DataOutput p_74734_1_) throws IOException
@@ -346,7 +354,7 @@ public class NBTTagCompound extends NBTBase
 
 	public NBTBase copy()
 	{
-		NBTTagCompound nbttagcompound = new NBTTagCompound(tagMap.size());
+		NBTTagCompound nbttagcompound = withExpectedSize(tagMap.size());
 		Iterator iterator = this.tagMap.keySet().iterator();
 
 		while (iterator.hasNext())
@@ -437,9 +445,16 @@ public class NBTTagCompound extends NBTBase
 		this.tagMap = tagMap;
 	}
 
-	public NBTTagCompound(int expectedSize)
+	/** Replaces the former public (int) constructor. Coremods built against
+	 * stock 1.7.10 inject their own {@code <init>(I)V} into this class (GTNH's
+	 * NBT optimizations do) - a colliding signature in the base class file is a
+	 * ClassFormatError at class load, so the core must not declare it. */
+	public static NBTTagCompound withExpectedSize(int expectedSize)
 	{
-		createMap(expectedSize);
+		//The pre-sized map is deliberately gone: the map has to come from the
+		//vanilla constructor so that a coremod-swapped implementation stays
+		//consistent with the copy() such a coremod overwrites.
+		return new NBTTagCompound();
 	}
 
 	@SuppressWarnings("unchecked")

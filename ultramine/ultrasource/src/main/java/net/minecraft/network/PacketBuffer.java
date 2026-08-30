@@ -18,6 +18,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.NBTSizeTracker;
 import net.minecraft.nbt.NBTTagCompound;
+import org.apache.logging.log4j.LogManager;
 
 public class PacketBuffer extends ByteBuf
 {
@@ -75,8 +76,20 @@ public class PacketBuffer extends ByteBuf
 		else
 		{
 			byte[] abyte = CompressedStreamTools.compress(p_150786_1_);
-			this.writeShort((short)abyte.length);
-			this.writeBytes(abyte);
+
+			if (abyte.length > Short.MAX_VALUE)
+			{
+				//the length prefix is a short: a bigger payload truncates into a
+				//corrupt frame and disconnects the receiving client - send null
+				//instead and keep the item usable (server-side data is untouched)
+				LogManager.getLogger().warn("Skipping NBT compound above the packet limit ({} > {} bytes compressed)", abyte.length, Short.MAX_VALUE);
+				this.writeShort(-1);
+			}
+			else
+			{
+				this.writeShort((short)abyte.length);
+				this.writeBytes(abyte);
+			}
 		}
 	}
 

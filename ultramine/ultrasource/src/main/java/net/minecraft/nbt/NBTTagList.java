@@ -18,9 +18,12 @@ public class NBTTagList extends NBTBase
 		this.tagList = tagList;
 	}
 
-	public NBTTagList(int size)
+	/** ULTRAMINE: replaces the former public (int) constructor - coremods built
+	 * against stock 1.7.10 may inject their own {@code <init>(I)V} here, and a
+	 * colliding signature in the base class file is a ClassFormatError. */
+	public static NBTTagList withExpectedSize(int size)
 	{
-		this(new ArrayList(size));
+		return new NBTTagList(new ArrayList(size));
 	}
 
 	public NBTTagList()
@@ -205,7 +208,7 @@ public class NBTTagList extends NBTBase
 
 	public NBTBase copy()
 	{
-		NBTTagList nbttaglist = new NBTTagList(tagList.size());
+		NBTTagList nbttaglist = withExpectedSize(tagList.size());
 		nbttaglist.tagType = this.tagType;
 		Iterator iterator = this.tagList.iterator();
 

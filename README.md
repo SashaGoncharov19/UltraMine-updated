@@ -56,6 +56,8 @@ Artifacts land in `build/libs/` and `build/distributions/`. The build pipeline (
 
 FastCraft, ServerTools, ForgeEssentials, DragonAPI, zzzzzcustomconfigs, NEID — they coremod-patch the same internals UltraMine rewrites (see [docs/04](docs/04-vanilla-forge-modifications.md)).
 
+**ArchaicFix's Phosphor backport** (`enablePhosphor`, on by default) rewrites `ExtendedBlockStorage` to read and write vanilla's `NibbleArray` light fields directly. This core stores chunk light off-heap and has no such fields, so the two lighting implementations cannot coexist — set `B:enablePhosphor=false` in `config/archaicfix.cfg`. The rest of ArchaicFix works.
+
 ## Lineage & license
 
 Original core by **vlad20012** (WTFPL — see `ultramine/ultrasource/LICENSE`), continued as the `4gname/UltraMine` fork, revived and modernized here. The legacy binaries in `ultramine/libraries/` and `ultramine/bootstrap/` predate the CI pipeline and are kept for history only — use the releases instead.

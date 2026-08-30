@@ -60,8 +60,23 @@ public class ServerLaunchWrapper {
 		}
 		catch (Throwable e)
 		{
-			System.err.printf("A problem occurred running the Server launcher.");
-			e.printStackTrace(System.err);
+			//unwrap reflective invocation so the real cause leads the trace
+			while (e instanceof java.lang.reflect.InvocationTargetException && e.getCause() != null)
+			{
+				e = e.getCause();
+			}
+			//System.err may be redirected into the async game logger by this
+			//point and halt() would kill the JVM before it drains - write the
+			//trace straight to the process stderr fd, then flush the logger.
+			java.io.PrintStream raw = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err), true);
+			raw.println("A problem occurred running the Server launcher.");
+			e.printStackTrace(raw);
+			raw.flush();
+			try
+			{
+				org.apache.logging.log4j.LogManager.shutdown();
+			}
+			catch (Throwable ignored) {}
 			//halt instead of exit: a failed launch can leave threads/shutdown
 			//hooks that keep or wedge the dying JVM
 			Runtime.getRuntime().halt(1);

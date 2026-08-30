@@ -211,7 +211,7 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 		try
 		{
 			NBTTagCompound nbttagcompound = new NBTTagCompound();
-			NBTTagCompound nbttagcompound1 = new NBTTagCompound(13);
+			NBTTagCompound nbttagcompound1 = NBTTagCompound.withExpectedSize(13);
 			nbttagcompound.setTag("Level", nbttagcompound1);
 			this.writeChunkToNBT(par2Chunk, par1World, nbttagcompound1);
 			MinecraftForge.EVENT_BUS.post(new ChunkDataEvent.Save(par2Chunk, nbttagcompound));
@@ -392,7 +392,7 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 			while (iterator1.hasNext())
 			{
 				Entity entity = (Entity)iterator1.next();
-				nbttagcompound1 = new NBTTagCompound(34);
+				nbttagcompound1 = NBTTagCompound.withExpectedSize(34);
 
 				try
 				{
@@ -412,13 +412,13 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 		}
 
 		par3NBTTagCompound.setTag("Entities", nbttaglist2);
-		NBTTagList nbttaglist3 = new NBTTagList(par1Chunk.chunkTileEntityMap.size());
+		NBTTagList nbttaglist3 = NBTTagList.withExpectedSize(par1Chunk.chunkTileEntityMap.size());
 		iterator1 = par1Chunk.chunkTileEntityMap.values().iterator();
 
 		while (iterator1.hasNext())
 		{
 			TileEntity tileentity = (TileEntity)iterator1.next();
-			nbttagcompound1 = new NBTTagCompound(7);
+			nbttagcompound1 = NBTTagCompound.withExpectedSize(7);
 			try {
 			tileentity.writeToNBT(nbttagcompound1);
 			nbttaglist3.appendTag(nbttagcompound1);
@@ -440,11 +440,11 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 			int z = par1Chunk.zPosition << 4;
 			
 			long k = par2World.getTotalWorldTime();
-			NBTTagList nbttaglist1 = new NBTTagList(set.size());
+			NBTTagList nbttaglist1 = NBTTagList.withExpectedSize(set.size());
 			
 			for(PendingBlockUpdate p : set)
 			{
-				NBTTagCompound nbttagcompound2 = new NBTTagCompound(6);
+				NBTTagCompound nbttagcompound2 = NBTTagCompound.withExpectedSize(6);
 				nbttagcompound2.setInteger("i", Block.getIdFromBlock(p.getBlock()));
 				nbttagcompound2.setInteger("x", x + p.x);
 				nbttagcompound2.setInteger("y", p.y);

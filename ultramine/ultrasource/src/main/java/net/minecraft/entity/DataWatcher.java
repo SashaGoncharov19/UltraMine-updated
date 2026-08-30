@@ -29,7 +29,12 @@ public class DataWatcher
 	private final Entity field_151511_a;
 	private boolean isBlank = true;
 	private static final HashMap dataTypes = new HashMap();
-	private final WatchableObject[] watchedObjects = new WatchableObject[32];
+	//ULTRAMINE: id-indexed storage that is still a Map from the outside - mods
+	//reach into this field by its vanilla shape (CoreTweaks @Shadows it as a
+	//Map and fails the class load otherwise), while the core uses the array
+	//directly. umWatched is the same object, typed for the fast paths.
+	private final org.ultramine.server.util.WatchableObjectMap umWatched = new org.ultramine.server.util.WatchableObjectMap();
+	private final Map watchedObjects = umWatched;
 	private boolean objectChanged;
 	private ReadWriteLock lock = new ReentrantReadWriteLock();
 	private static final String __OBFID = "CL_00001559";
@@ -51,7 +56,7 @@ public class DataWatcher
 		{
 			throw new IllegalArgumentException("Data value id is too big with " + p_75682_1_ + "! (Max is " + 31 + ")");
 		}
-		else if (this.watchedObjects[p_75682_1_] != null)
+		else if (this.umWatched.getById(p_75682_1_) != null)
 		{
 			throw new IllegalArgumentException("Duplicate id value for " + p_75682_1_ + "!");
 		}
@@ -59,7 +64,7 @@ public class DataWatcher
 		{
 			DataWatcher.WatchableObject watchableobject = new DataWatcher.WatchableObject(integer.intValue(), p_75682_1_, p_75682_2_);
 			this.lock.writeLock().lock();
-			this.watchedObjects[p_75682_1_] = watchableobject;
+			this.umWatched.putById(p_75682_1_, watchableobject);
 			this.lock.writeLock().unlock();
 			this.isBlank = false;
 		}
@@ -69,7 +74,7 @@ public class DataWatcher
 	{
 		DataWatcher.WatchableObject watchableobject = new DataWatcher.WatchableObject(p_82709_2_, p_82709_1_, (Object)null);
 		this.lock.writeLock().lock();
-		this.watchedObjects[p_82709_1_] = watchableobject;
+		this.umWatched.putById(p_82709_1_, watchableobject);
 		this.lock.writeLock().unlock();
 		this.isBlank = false;
 	}
@@ -111,7 +116,7 @@ public class DataWatcher
 
 		try
 		{
-			watchableobject = (DataWatcher.WatchableObject)this.watchedObjects[p_75691_1_];
+			watchableobject = this.umWatched.getById(p_75691_1_);
 		}
 		catch (Throwable throwable)
 		{
@@ -173,7 +178,7 @@ public class DataWatcher
 		{
 			this.lock.readLock().lock();
 
-			for (WatchableObject watchableobject : watchedObjects)
+			for (WatchableObject watchableobject : umWatched.array())
 			{
 				if(watchableobject == null)
 					continue;
@@ -202,7 +207,7 @@ public class DataWatcher
 	{
 		this.lock.readLock().lock();
 
-		for (WatchableObject watchableobject : watchedObjects)
+		for (WatchableObject watchableobject : umWatched.array())
 		{
 			if(watchableobject == null)
 				continue;
@@ -225,7 +230,7 @@ public class DataWatcher
 		ArrayList arraylist = null;
 		this.lock.readLock().lock();
 
-		for (WatchableObject watchableobject : watchedObjects)
+		for (WatchableObject watchableobject : umWatched.array())
 		{
 			if(watchableobject == null)
 				continue;
@@ -333,7 +338,7 @@ public class DataWatcher
 		while (iterator.hasNext())
 		{
 			DataWatcher.WatchableObject watchableobject = (DataWatcher.WatchableObject)iterator.next();
-			DataWatcher.WatchableObject watchableobject1 = (DataWatcher.WatchableObject)this.watchedObjects[watchableobject.getDataValueId()];
+			DataWatcher.WatchableObject watchableobject1 = this.umWatched.getById(watchableobject.getDataValueId());
 
 			if (watchableobject1 != null)
 			{
