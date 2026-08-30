@@ -2170,13 +2170,17 @@ public abstract class World implements IBlockAccess
 
 	public void updateEntityWithOptionalForce(Entity p_72866_1_, boolean p_72866_2_)
 	{
-		//int i = MathHelper.floor_double(p_72866_1_.posX);
-		//int j = MathHelper.floor_double(p_72866_1_.posZ);
-		//boolean isForced = getPersistentChunks().containsKey(new ChunkCoordIntPair(i >> 4, j >> 4));
+		//The stock Forge prelude locals (i, j, isForced) must stay: coremod
+		//mixins (e.g. ArchaicFix's MixinWorld) capture them from the LVT and
+		//fail the whole class load when they are missing. The chunk-existence
+		//check itself remains moved up in the call hierarchy (canUpdate=true).
+		int i = MathHelper.floor_double(p_72866_1_.posX);
+		int j = MathHelper.floor_double(p_72866_1_.posZ);
+		boolean isForced = getPersistentChunks().containsKey(new ChunkCoordIntPair(i >> 4, j >> 4));
 		//byte b0 = isForced ? (byte)0 : 32;
 		//boolean canUpdate = !p_72866_2_ || this.checkChunksExist(i - b0, 0, j - b0, i + b0, 0, j + b0);
 		boolean canUpdate = true; // checks moved up in call hierarchy
-		
+
 		//if (!canUpdate)
 		//{
 		//	EntityEvent.CanUpdate event = new EntityEvent.CanUpdate(par1Entity);
