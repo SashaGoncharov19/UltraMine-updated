@@ -204,6 +204,17 @@ jobs:
           for d in mods config scripts resources; do
             [ -d "$BASE/$d" ] && cp -r "$BASE/$d" . && echo "copied $d"
           done
+          # ArchaicFix's Phosphor lighting backport rewrites ExtendedBlockStorage
+          # to read and write vanilla's NibbleArray light fields directly. This
+          # core keeps chunk light off-heap and has no such fields, so the two
+          # lighting implementations cannot coexist - turn Phosphor off.
+          if [ -f config/archaicfix.cfg ]; then
+            sed -i 's/\(B:enablePhosphor=\)true/\1false/' config/archaicfix.cfg
+            echo "archaicfix Phosphor setting: $(grep -n 'enablePhosphor' config/archaicfix.cfg || echo 'key not present')"
+          else
+            printf 'general {\n    B:enablePhosphor=false\n}\n' > config/archaicfix.cfg
+            echo 'archaicfix.cfg not shipped by the pack - wrote one disabling Phosphor'
+          fi
           MODERN_FLAGS=""
           if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then
             MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"
