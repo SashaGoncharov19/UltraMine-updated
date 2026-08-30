@@ -69,6 +69,44 @@ public class NetworkManager extends SimpleChannelInboundHandler
 	private boolean field_152463_r;
 	private static final String __OBFID = "CL_00001240";
 
+	/* ========================================= ULTRAMINE START ======================================*/
+	//Incoming packet flood protection. Vanilla 1.7.10 has none: a spamming
+	//connection burns the netty thread on decode and grows the unbounded
+	//receivedPacketsQueue (drained at most 1000 packets/tick) until OOM.
+	//Per-connection, per-second; legitimate clients (modded included) stay far
+	//below the default. 0 or negative disables.
+	private static final int MAX_INCOMING_PACKETS_PER_SECOND = Integer.getInteger("ultramine.network.maxIncomingPacketsPerSecond", 800);
+	private long incomingPacketWindowStart;
+	private int incomingPacketCounter;
+	private boolean incomingRateKicked;
+
+	/** Runs on the channel's single netty IO thread, so no synchronization. Returns true when the connection flooded and was closed. */
+	private boolean floodDetected()
+	{
+		if (this.isClientSide || MAX_INCOMING_PACKETS_PER_SECOND <= 0)
+		{
+			return false;
+		}
+		long now = System.nanoTime();
+		if (now - this.incomingPacketWindowStart >= 1000000000L)
+		{
+			this.incomingPacketWindowStart = now;
+			this.incomingPacketCounter = 0;
+		}
+		if (++this.incomingPacketCounter <= MAX_INCOMING_PACKETS_PER_SECOND)
+		{
+			return false;
+		}
+		if (!this.incomingRateKicked)
+		{
+			this.incomingRateKicked = true;
+			logger.warn("{}: disconnected for flooding - over {} incoming packets/s", this.socketAddress, Integer.valueOf(MAX_INCOMING_PACKETS_PER_SECOND));
+			this.closeChannel(new ChatComponentTranslation("disconnect.spam", new Object[0]));
+		}
+		return true;
+	}
+	/* ========================================= ULTRAMINE END ======================================*/
+
 	public NetworkManager(boolean p_i45147_1_)
 	{
 		this.isClientSide = p_i45147_1_;
@@ -116,6 +154,7 @@ public class NetworkManager extends SimpleChannelInboundHandler
 	{
 		if (this.channel.isOpen())
 		{
+			if (floodDetected()) return; // ULTRAMINE
 			if (p_channelRead0_2_.hasPriority())
 			{
 				p_channelRead0_2_.processPacket(this.netHandler);
