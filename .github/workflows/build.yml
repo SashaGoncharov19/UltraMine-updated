@@ -224,9 +224,19 @@ jobs:
           done
           if [ "$booted" != 1 ]; then
             echo '::error::Server failed to boot with the modpack'
+            # transform-time load failures are logged once and often swallowed
+            # by mods; "was not found" lines are expected side-stripped noise
+            echo '--- transform-time class load errors (first 8) ---'
+            grep -nE 'Error loading class' console.log | grep -v 'was not found' | head -n 8 || true
+            n=$(grep -nE 'Error loading class' console.log | grep -v 'was not found' | head -n 1 | cut -d: -f1)
+            if [ -n "$n" ]; then
+              echo "--- context of the first one (console line $n) ---"
+              start=$((n>10 ? n-10 : 1))
+              sed -n "${start},$((n+60))p" console.log
+            fi
             # the FIRST initializer failure carries the real cause; the tail
             # usually shows only the secondary "Could not initialize class"
-            for pat in 'ExceptionInInitializerError' 'Could not initialize class' 'LoaderException'; do
+            for pat in 'ExceptionInInitializerError' 'Could not initialize class' 'NoClassDefFoundError' 'LoaderException'; do
               n=$(grep -nFm1 "$pat" console.log | cut -d: -f1)
               if [ -n "$n" ]; then
                 echo "--- first '$pat' (console line $n) ---"
