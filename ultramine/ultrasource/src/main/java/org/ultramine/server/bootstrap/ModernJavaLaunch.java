@@ -69,37 +69,45 @@ public class ModernJavaLaunch
 		Launch.blackboard.put("TweakClasses", tweakClassNames);
 		Launch.blackboard.put("ArgumentList", argumentList);
 
+		//The LIVE pending-tweaker list: FML reads it from the blackboard and
+		//inserts instantiated tweakers (coremod plugin wrappers, the sorting
+		//tweaker) and sorts it in place - see CoreModManager.injectCoreModTweaks
+		//and sortTweakList
+		List<ITweaker> tweakers = new ArrayList<ITweaker>();
+		Launch.blackboard.put("Tweaks", tweakers);
+
 		Set<String> visitedTweakerNames = new HashSet<String>();
-		List<ITweaker> pendingTweakers = new ArrayList<ITweaker>();
 		List<ITweaker> allTweakers = new ArrayList<ITweaker>();
 		ITweaker primaryTweaker = null;
 
-		//Tweakers may inject more tweaker names into the blackboard list while
-		//being processed (FML's cascading tweaks) - keep draining until stable
+		//Tweakers may inject more tweaker names/instances while being processed
+		//(FML's cascading tweaks) - keep draining until stable. Loop mechanics
+		//mirror launchwrapper 1.11 Launch.launch() exactly, quirks included.
 		do
 		{
 			for(Iterator<String> it = tweakClassNames.iterator(); it.hasNext();)
 			{
 				String tweakName = it.next();
-				it.remove();
 				if(!visitedTweakerNames.add(tweakName))
+				{
+					it.remove();
 					continue;
-				int lastDot = tweakName.lastIndexOf('.');
-				if(lastDot > 0)
-					classLoader.addClassLoaderExclusion(tweakName.substring(0, lastDot + 1));
+				}
+				classLoader.addClassLoaderExclusion(tweakName.substring(0, tweakName.lastIndexOf('.')));
 				ITweaker tweaker = (ITweaker) Class.forName(tweakName, true, classLoader).newInstance();
-				pendingTweakers.add(tweaker);
+				tweakers.add(tweaker);
+				it.remove();
 				if(primaryTweaker == null)
 					primaryTweaker = tweaker;
 			}
 
-			for(Iterator<ITweaker> it = pendingTweakers.iterator(); it.hasNext();)
+			for(Iterator<ITweaker> it = tweakers.iterator(); it.hasNext();)
 			{
 				ITweaker tweaker = it.next();
-				it.remove();
 				tweaker.acceptOptions(options.valuesOf(nonOption), gameDir, assetsDir, profileName);
 				tweaker.injectIntoClassLoader(classLoader);
 				allTweakers.add(tweaker);
+				it.remove();
 			}
 		}
 		while(!tweakClassNames.isEmpty());
