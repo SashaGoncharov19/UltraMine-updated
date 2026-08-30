@@ -277,6 +277,8 @@ jobs:
           done
           if [ "$booted" != 1 ]; then
             echo '::error::Server failed to boot with the modpack'
+            # Log readers only ever get the tail, so this is ordered worst-last:
+            # the wide context first, the actual cause at the very end.
             # transform-time load failures are logged once and often swallowed
             # by mods; "was not found" lines are expected side-stripped noise
             echo '--- transform-time class load errors (first 8) ---'
@@ -285,7 +287,7 @@ jobs:
             if [ -n "$n" ]; then
               echo "--- context of the first one (console line $n) ---"
               start=$((n>10 ? n-10 : 1))
-              sed -n "${start},$((n+60))p" console.log
+              sed -n "${start},$((n+40))p" console.log
             fi
             # the FIRST initializer failure carries the real cause; the tail
             # usually shows only the secondary "Could not initialize class"
@@ -294,13 +296,20 @@ jobs:
               if [ -n "$n" ]; then
                 echo "--- first '$pat' (console line $n) ---"
                 start=$((n>15 ? n-15 : 1))
-                sed -n "${start},$((n+150))p" console.log
+                sed -n "${start},$((n+80))p" console.log
                 break
               fi
             done
-            echo '--- last 200 console lines ---'
-            tail -n 200 console.log
-            for f in crash-reports/*.txt; do [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }; done
+            echo '--- last 80 console lines ---'
+            tail -n 80 console.log
+            # A GTNH crash report is ~800 lines of mod list with the cause in the
+            # first 60. Print only that, and print it last.
+            for f in crash-reports/*.txt; do
+              [ -f "$f" ] && { echo "=== CAUSE: $f (head) ==="; sed -n '1,70p' "$f"; }
+            done
+            # the exception line itself, last of all, so it survives any truncation
+            echo '=== exception lines in console.log (last 25) ==='
+            grep -nE '^\s*(Caused by:|[a-z]+\.[a-zA-Z0-9_.$]*(Exception|Error)[:\s])' console.log | tail -n 25 || true
             exit 1
           fi
           echo '=== BOOTED with the modpack ==='
