@@ -53,6 +53,7 @@ import org.ultramine.server.util.VanillaChunkHashSet;
 public class ChunkProviderServer implements IChunkProvider
 {
 	private static final Logger logger = LogManager.getLogger();
+	private static final int[] EMPTY_UNLOAD_QUEUE = new int[0];
 	public IntSet unloadQueue = HashIntSets.newMutableSet();
 	public Set<Long> chunksToUnload = new VanillaChunkHashSet(unloadQueue); //mods compatibility
 	private Chunk defaultEmptyChunk;
@@ -393,9 +394,23 @@ public class ChunkProviderServer implements IChunkProvider
 			Set<ChunkCoordIntPair> persistentChunks = worldObj.getPersistentChunks().keySet();
 			int savequeueSize = ((AnvilChunkLoader)currentChunkLoader).getSaveQueueSize();
 			
-			for(IntCursor it = unloadQueue.cursor(); it.moveNext() && savequeueSize < MAX_SAVE_QUEUE_SIZE;)
+			/*
+			 * ultramine: iterate a snapshot, not the queue itself. onChunkUnload
+			 * fires ChunkEvent.Unload and the save path fires ChunkDataEvent.Save;
+			 * a handler that so much as asks for a chunk lands in loadChunk, which
+			 * removes from unloadQueue - the set the loop is walking. Cursors over
+			 * it do not survive that.
+			 */
+			int[] toUnload = unloadQueue.isEmpty() ? EMPTY_UNLOAD_QUEUE : unloadQueue.toIntArray();
+
+			for(int i = 0; i < toUnload.length && savequeueSize < MAX_SAVE_QUEUE_SIZE; i++)
 			{
-				int hash = it.elem();
+				int hash = toUnload[i];
+				//a handler may have pulled this chunk back into use since the
+				//snapshot was taken; unloading it now would drop a live chunk
+				if(!unloadQueue.contains(hash))
+					continue;
+
 				Chunk chunk = chunkMap.get(hash);
 				if(chunk != null)
 				{
@@ -416,8 +431,8 @@ public class ChunkProviderServer implements IChunkProvider
 						chunk.release();
 					}
 				}
-				
-				it.remove();
+
+				unloadQueue.removeInt(hash);
 			}
 
 			if (this.currentChunkLoader != null)
