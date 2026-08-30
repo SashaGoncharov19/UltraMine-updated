@@ -226,6 +226,7 @@ jobs:
             echo '::error::Server failed to boot with the modpack'
             echo '--- last 200 console lines ---'
             tail -n 200 console.log
+            for f in crash-reports/*.txt; do [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }; done
             exit 1
           fi
           echo '=== BOOTED with the modpack ==='
@@ -239,7 +240,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: modpack-console-java${{ inputs.modpack_java }}
-          path: smoke/console.log
+          path: |
+            smoke/console.log
+            smoke/crash-reports/
+            smoke/logs/
           if-no-files-found: ignore
 
   # Stage 2 acceptance gate: the SAME build must also boot on Java 25.
