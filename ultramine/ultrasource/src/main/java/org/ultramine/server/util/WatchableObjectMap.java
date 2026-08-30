@@ -23,7 +23,11 @@ import net.minecraft.entity.DataWatcher.WatchableObject;
  */
 public class WatchableObjectMap extends AbstractMap<Integer, WatchableObject>
 {
-	private WatchableObject[] slots = new WatchableObject[32];
+	//volatile: DataWatcher reads watched objects without holding its lock (packet
+	//threads do, via getAllWatched/func_151509_a), and unlike the fixed final
+	//array this one is replaced when it grows - the volatile write publishes the
+	//copied contents along with the new reference. A volatile read is free on x86.
+	private volatile WatchableObject[] slots = new WatchableObject[32];
 	private int size;
 
 	/** Array access for the core's own hot paths - iterate under DataWatcher's lock. */
