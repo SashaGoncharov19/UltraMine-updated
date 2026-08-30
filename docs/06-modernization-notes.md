@@ -148,24 +148,31 @@ Also fixed along the way: launchwrapper's transformer list is now copy-on-write
 (coremods register transformers *during* iteration — a stock CME), and a failed
 launch prints its real stack trace instead of being swallowed by `halt()`.
 
-### Architectural: block-id width and lighting
+### Architectural: block-id width and lighting - resolved by a second storage backend
 
-These two cannot be papered over — they are competing implementations of the
-same subsystem, so one side has to give:
+These two could not be papered over: they are competing implementations of
+the same subsystem, so one side had to give. The answer was to let the
+ecosystem's implementation win where a pack needs it -
+`-Dorg.ultramine.chunk.storage=vanilla` stores a section in vanilla's heap
+arrays, and both mods then apply as they do on stock Forge. **The GT New
+Horizons daily pack boots on this core in that mode** - all 294 mods, nothing
+excluded, Phosphor left on, on Java 8. The original findings are kept below,
+because they are what the mode exists for:
 
 - **Block ids.** `MemSlot` packs a block as 12 bits of id plus 4 of metadata:
   4096 ids, exactly vanilla's ceiling. Modern large packs exceed it — GTNH asks
   for id **10617** — and solve it with **EndlessIDs**/NEID, which `@Shadow` the
   vanilla `blockLSBArray`/`blockMSBArray` arrays and extend them. This core has
-  no such arrays (blocks live off-heap), so EndlessIDs fails to apply, and
-  without it the pack runs out of ids. **GTNH-class packs are therefore out of
-  reach until `MemSlot` itself carries wider ids** — a chunk-format change, and
-  the natural next big step if such packs are a goal.
+  no such arrays in the default mode (blocks live off-heap), so EndlessIDs
+  fails to apply, and without it the pack runs out of ids. In `vanilla`
+  storage mode the arrays are there and live, EndlessIDs applies, and the
+  ceiling becomes whatever it raises it to.
 - **Lighting.** ArchaicFix's Phosphor backport reads, caches and assigns the
   vanilla `NibbleArray` light fields. Chunk light is off-heap here and
   `getSkylightArray()` materializes a copy, so Phosphor cannot work against it:
-  set `B:enablePhosphor=false` in `config/archaicfix.cfg`. The rest of
-  ArchaicFix is fine.
+  set `B:enablePhosphor=false` in `config/archaicfix.cfg`. In `vanilla`
+  storage mode the fields are the section itself and Phosphor runs
+  untouched. The rest of ArchaicFix is fine either way.
 
 Everything else in the pack — 293 of 294 mods including GregTech, Thaumcraft,
 AE2, Railcraft, Forestry and the whole GTNH coremod stack — got through mod
@@ -235,8 +242,14 @@ worlds needs to know it is doing that.
    arrays *are* the section — a write through one is a write to the world —
    and replacing one replaces the section, on every path including the raw
    slot the bulk code reads.
-4. Boot the GTNH pack in compatibility mode in CI (the modpack job already
-   exists) and work through whatever the pack then hits.
+4. ~~Boot the GTNH pack in compatibility mode in CI and work through whatever
+   the pack then hits.~~ Done. The pack got every one of its 294 mods to
+   Available and then failed loading `EntityTrackerEntry`: ArchaicFix
+   captures that method's locals by position, and the core carried one
+   extra local - a copy of a field it already writes - which shifted every
+   later local by a slot. With that removed the pack reaches `Done`: full
+   mod set, nothing excluded, Phosphor on, Java 8. Reproduce by dispatching
+   `build.yml` with `modpack_url=gtnh-latest` and `chunk_storage=vanilla`.
 5. Only if a wider *off-heap* format still looks worthwhile after that: add a
    second MSB nibble to `MemSlot` (+2048 bytes per section, ~17% more chunk
    memory), the matching NBT tag with backward compatibility for chunks that
