@@ -126,14 +126,13 @@ jobs:
             exit 1
           fi
 
-  # Stage 2 acceptance-in-progress: boot the SAME build on Java 25. Experimental
-  # while the Java 25 work lands — failures don't fail the workflow yet.
+  # Stage 2 acceptance gate: the SAME build must also boot on Java 25.
+  # Passing since 510260c — a failure here fails the workflow.
   smoke-java25:
-    name: Boot smoke test (Java 25, experimental)
+    name: Boot smoke test (Java 25)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: build
-    continue-on-error: true
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
