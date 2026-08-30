@@ -50,11 +50,18 @@ public class UMTBatchTransformer implements IClassTransformer
 		for(IUMClassTransformer transformer : globalTransformers)
 			flags |= transformer.transform(name, transformedName, classReader, classNode).ordinal();
 
-		// Computing frames even if we did not changed class to fix other mod changes of 1.7 & 1.8 classes
-		boolean shouldComputeFrames = REPAIR_FRAMES && (classNode.version & 0xFFFF) > Opcodes.V1_6;
-		if(flags == 0 && !shouldComputeFrames)
+		// Never rewrite classes we did not change: recomputing frames of
+		// untouched (mod) classes resolves type hierarchies against the
+		// side-stripped server jar and replaces valid javac frames with
+		// merge types that reference client-only classes - the verifier then
+		// fails to link them (seen with ThaumicEnergistics' gui handler and
+		// EndlessIDs' transformed DataWatcher in GTNH).
+		if(flags == 0)
 			return basicClass;
 
+		// Frames are recomputed only when a transformer changed the stack
+		// shape; plain 1:1 call replacements keep the original frames.
+		boolean shouldComputeFrames = REPAIR_FRAMES && flags > 1 && (classNode.version & 0xFFFF) > Opcodes.V1_6;
 		ClassWriter writer = shouldComputeFrames ? new ComputeFramesClassWriter() : new ClassWriter(flags == 1 ? 0 : 1);
 		classNode.accept(writer);
 		return writer.toByteArray();
