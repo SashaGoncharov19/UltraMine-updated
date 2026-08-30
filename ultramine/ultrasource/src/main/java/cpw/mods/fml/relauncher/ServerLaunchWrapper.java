@@ -39,18 +39,32 @@ public class ServerLaunchWrapper {
 
 		try
 		{
-			Method main = launchwrapper.getMethod("main", String[].class);
 			String[] allArgs = new String[args.length + 2];
 			allArgs[0] = "--tweakClass";
 			allArgs[1] = "cpw.mods.fml.common.launcher.FMLServerTweaker";
 			System.arraycopy(args, 0, allArgs, 2, args.length);
-			main.invoke(null,(Object)allArgs);
+			if(getClass().getClassLoader() instanceof java.net.URLClassLoader)
+			{
+				//Java 8: the stock launchwrapper path, unchanged
+				Method main = launchwrapper.getMethod("main", String[].class);
+				main.invoke(null,(Object)allArgs);
+			}
+			else
+			{
+				//Java 9+: the app class loader is no longer a URLClassLoader and
+				//launchwrapper's Launch constructor fails on it - use our
+				//classpath-property-based reimplementation of the same flow
+				Class<?> modernLaunch = Class.forName("org.ultramine.server.bootstrap.ModernJavaLaunch", true, getClass().getClassLoader());
+				modernLaunch.getMethod("launch", String[].class).invoke(null, (Object)allArgs);
+			}
 		}
-		catch (Exception e)
+		catch (Throwable e)
 		{
 			System.err.printf("A problem occurred running the Server launcher.");
 			e.printStackTrace(System.err);
-			System.exit(1);
+			//halt instead of exit: a failed launch can leave threads/shutdown
+			//hooks that keep or wedge the dying JVM
+			Runtime.getRuntime().halt(1);
 		}
 	}
 

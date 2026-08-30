@@ -34,6 +34,15 @@ public class FMLTweaker implements ITweaker {
 		{
 			System.setSecurityManager(new FMLSecurityManager());
 		}
+		catch (UnsupportedOperationException e)
+		{
+			//Java 17+ without -Djava.security.manager=allow, or Java 24+ where the
+			//Security Manager is permanently disabled (JEP 486). FML only used it to
+			//trap System.exit calls, which TerminalTransformer also rewrites at the
+			//bytecode level, so continuing without one is safe.
+			//FMLRelaunchLog cannot be used this early - its side is not set yet
+			System.out.println("SecurityManager is not supported by this JVM; continuing without FML's exit-trapping manager");
+		}
 		catch (SecurityException se)
 		{
 			throw new RuntimeException("FML was unable to install the security manager. The game will not start", se);

@@ -15,11 +15,13 @@ package cpw.mods.fml.common.asm.transformers.deobf;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.ClassRemapper;
+import org.objectweb.asm.commons.MethodRemapper;
 import org.objectweb.asm.commons.Remapper;
-import org.objectweb.asm.commons.RemappingClassAdapter;
-import org.objectweb.asm.commons.RemappingMethodAdapter;
 
-public class FMLRemappingAdapter extends RemappingClassAdapter {
+//ASM 6 removed RemappingClassAdapter/RemappingMethodAdapter; this is the same
+//logic on top of their replacements ClassRemapper/MethodRemapper
+public class FMLRemappingAdapter extends ClassRemapper {
 	public FMLRemappingAdapter(ClassVisitor cv)
 	{
 		super(cv, FMLDeobfuscatingRemapper.INSTANCE);
@@ -37,17 +39,17 @@ public class FMLRemappingAdapter extends RemappingClassAdapter {
 	}
 
 	@Override
-	protected MethodVisitor createRemappingMethodAdapter(int access, String newDesc, MethodVisitor mv)
+	protected MethodVisitor createMethodRemapper(MethodVisitor mv)
 	{
-		return new StaticFixingMethodVisitor(access, newDesc, mv, remapper);
+		return new StaticFixingMethodVisitor(mv, remapper);
 	}
 
-	private static class StaticFixingMethodVisitor extends RemappingMethodAdapter
+	private static class StaticFixingMethodVisitor extends MethodRemapper
 	{
 
-		public StaticFixingMethodVisitor(int access, String desc, MethodVisitor mv, Remapper remapper)
+		public StaticFixingMethodVisitor(MethodVisitor mv, Remapper remapper)
 		{
-			super(access, desc, mv, remapper);
+			super(mv, remapper);
 		}
 
 		@Override

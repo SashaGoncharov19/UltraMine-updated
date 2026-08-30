@@ -36,6 +36,8 @@ jobs:
     name: Build (JDK 8, Gradle wrapper)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,22 +100,22 @@ jobs:
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
           mkfifo in
-          (java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          (set +e; java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
-          for i in $(seq 1 96); do
+          for i in $(seq 1 90); do
             grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
-            sleep 5
+            sleep 2
           done
           if [ "$booted" != 1 ]; then
-            echo '::error::Server failed to boot (no "Done" within 8 min)'
+            echo '::error::Server failed to boot (no "Done" within 3 min)'
             tail -c 20000 console.log
             exit 1
           fi
           echo stop >&9
-          for i in $(seq 1 24); do [ -f exitcode ] && break; sleep 5; done
-          [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
+          for i in $(seq 1 30); do [ -f exitcode ] && break; sleep 2; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 1 min, killing'; pkill -9 -f "$JAR" || true; }
           echo '--- last console lines ---'
           tail -n 40 console.log
           # log4j StatusLogger errors mean the logging config/plugins are broken
@@ -123,3 +125,50 @@ jobs:
             grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3} .* (ERROR|FATAL) ' console.log | head -n 20
             exit 1
           fi
+
+  # Stage 2 acceptance gate: the SAME build must also boot on Java 25.
+  # Passing since 510260c — a failure here fails the workflow.
+  smoke-java25:
+    name: Boot smoke test (Java 25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ultramine_core-${{ needs.build.outputs.version }}
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Boot on Java 25
+        run: |
+          mkdir -p smoke && cd smoke
+          unzip -q ../distributions/*-server-dist.zip
+          JAR=$(ls ultramine_core-*-server.jar)
+          echo "Booting $JAR on $(java -version 2>&1 | head -1)"
+          MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
+          mkfifo in
+          (set +e; java -Xms512M -Xmx2G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          exec 9>in
+          booted=0
+          for i in $(seq 1 90); do
+            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            [ -f exitcode ] && break
+            sleep 2
+          done
+          if [ "$booted" != 1 ]; then
+            echo '::error::Server failed to boot on Java 25'
+            echo '--- full console log ---'
+            cat console.log
+            exit 1
+          fi
+          echo stop >&9
+          for i in $(seq 1 30); do [ -f exitcode ] && break; sleep 2; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 1 min, killing'; pkill -9 -f "$JAR" || true; }
+          echo '--- last console lines ---'
+          tail -n 60 console.log

@@ -72,22 +72,22 @@ jobs:
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
           mkfifo in
-          (java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          (set +e; java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
-          for i in $(seq 1 96); do
+          for i in $(seq 1 90); do
             grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
-            sleep 5
+            sleep 2
           done
           if [ "$booted" != 1 ]; then
-            echo '::error::Server failed to boot (no "Done" within 8 min)'
+            echo '::error::Server failed to boot (no "Done" within 3 min)'
             tail -c 20000 console.log
             exit 1
           fi
           echo stop >&9
-          for i in $(seq 1 24); do [ -f exitcode ] && break; sleep 5; done
-          [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
+          for i in $(seq 1 30); do [ -f exitcode ] && break; sleep 2; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 1 min, killing'; pkill -9 -f "$JAR" || true; }
           echo '--- last console lines ---'
           tail -n 40 console.log
           # log4j StatusLogger errors mean the logging config/plugins are broken
@@ -130,29 +130,29 @@ jobs:
           cat >> "$BODY" <<'EOF'
           ---
 
-          Собрано автоматически на GitHub Actions из тега `v${{ steps.ver.outputs.version }}`
-          ([лог сборки](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
-          Никаких вручную загруженных бинарников — всё строится из исходников этого репозитория.
+          Built automatically by GitHub Actions from tag `v${{ steps.ver.outputs.version }}`
+          ([build log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})).
+          No hand-uploaded binaries — everything is built from this repository's sources.
 
-          **`*-server-dist.zip`** — готовый к запуску сервер (jar + `libraries/` + start-скрипты).
-          **`*-server.jar`** — только ядро (нужна папка `libraries/` рядом). `*-dev.jar` — MCP-имена, для разработки.
+          **`*-server-dist.zip`** — ready-to-run server (jar + `libraries/` + start scripts).
+          **`*-server.jar`** — the core alone (needs the `libraries/` folder next to it). `*-dev.jar` — MCP names, for development.
 
-          ### Проверка целостности / Verify integrity
+          ### Verify integrity
 
           ```bash
           sha256sum -c SHA256SUMS.txt --ignore-missing
           ```
 
-          ### Проверка происхождения сборки / Verify build provenance
+          ### Verify build provenance
 
-          Каждый файл криптографически привязан к этому коммиту и workflow-запуску
-          (GitHub artifact attestations). Проверка через [gh CLI](https://cli.github.com/):
+          Every file is cryptographically bound to this commit and workflow run
+          (GitHub artifact attestations). Verify with the [gh CLI](https://cli.github.com/):
 
           ```bash
-          gh attestation verify <файл> --repo ${{ github.repository }}
+          gh attestation verify <file> --repo ${{ github.repository }}
           ```
 
-          Подробнее: [docs/07-ci-and-releases.md](${{ github.server_url }}/${{ github.repository }}/blob/v${{ steps.ver.outputs.version }}/docs/07-ci-and-releases.md)
+          Details: [docs/07-ci-and-releases.md](${{ github.server_url }}/${{ github.repository }}/blob/v${{ steps.ver.outputs.version }}/docs/07-ci-and-releases.md)
           EOF
 
       - name: Create GitHub release
