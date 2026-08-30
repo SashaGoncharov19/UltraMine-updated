@@ -40,6 +40,10 @@ public class Log4jBeta9CompatTransformer implements IUMClassTransformer
 		add("org/apache/logging/log4j/core/layout/PatternLayout", "createLayout",
 				"(Ljava/lang/String;Lorg/apache/logging/log4j/core/config/Configuration;Lorg/apache/logging/log4j/core/pattern/RegexReplacement;Ljava/lang/String;Ljava/lang/String;)Lorg/apache/logging/log4j/core/layout/PatternLayout;",
 				"patternLayoutCreateLayout");
+		//keyed on the post-remap owner (Log4jPackageRemapTransformer runs first)
+		add("org/apache/logging/log4j/core/util/Loader", "loadClass",
+				"(Ljava/lang/String;)Ljava/lang/Class;",
+				"loaderLoadClass");
 		add("org/apache/logging/log4j/core/appender/rolling/OnStartupTriggeringPolicy", "createPolicy",
 				"()Lorg/apache/logging/log4j/core/appender/rolling/OnStartupTriggeringPolicy;",
 				"onStartupCreatePolicy");

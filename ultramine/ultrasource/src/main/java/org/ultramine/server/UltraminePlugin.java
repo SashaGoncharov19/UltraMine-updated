@@ -18,6 +18,9 @@ public class UltraminePlugin implements IFMLLoadingPlugin
 	public String[] getASMTransformerClass()
 	{
 		return new String[]{
+				//rewrites log4j 2.0-beta9 type references, so it must see classes
+				//before the collection's call-level bridge does
+				"org.ultramine.server.asm.transformers.Log4jPackageRemapTransformer",
 				"org.ultramine.server.asm.transformers.UMTransformerCollection", //must be always the last
 		};
 	}

@@ -45,6 +45,18 @@ public final class Log4jBeta9Compat
 		return PatternLayout.createLayout(pattern, null, config, replace, charset, alwaysWriteExceptions, false, null, null);
 	}
 
+	/**
+	 * beta9: Loader.loadClass(String) - 2.17.2 only kept the two-argument form.
+	 * The type reference itself is moved to core.util by
+	 * {@link org.ultramine.server.asm.transformers.Log4jPackageRemapTransformer},
+	 * so this bridge is keyed on the new owner.
+	 */
+	public static Class<?> loaderLoadClass(String className) throws ClassNotFoundException
+	{
+		return org.apache.logging.log4j.core.util.Loader.loadClass(className,
+				org.apache.logging.log4j.core.util.Loader.getClassLoader());
+	}
+
 	/** beta9: OnStartupTriggeringPolicy.createPolicy() */
 	public static OnStartupTriggeringPolicy onStartupCreatePolicy()
 	{
