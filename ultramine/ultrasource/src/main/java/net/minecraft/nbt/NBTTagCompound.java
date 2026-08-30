@@ -27,7 +27,15 @@ public class NBTTagCompound extends NBTBase
 
 	public NBTTagCompound()
 	{
-		createMap(0);
+		//ULTRAMINE: this allocation stays inline and vanilla-shaped on purpose.
+		//Coremods rewrite exactly this `new HashMap()` inside <init>()V into their
+		//own map implementation and overwrite copy() to cast the field to it
+		//(GTNH's Hodgepodge does), so every other path must obtain its map from
+		//this constructor - otherwise the field and the patched copy() disagree.
+		if (USE_KOLOBOKE_MAP)
+			createMap(0);
+		else
+			this.tagMap = new HashMap();
 	}
 
 	void write(DataOutput p_74734_1_) throws IOException
@@ -443,13 +451,10 @@ public class NBTTagCompound extends NBTBase
 	 * ClassFormatError at class load, so the core must not declare it. */
 	public static NBTTagCompound withExpectedSize(int expectedSize)
 	{
-		NBTTagCompound tag = new NBTTagCompound(true);
-		tag.createMap(expectedSize);
-		return tag;
-	}
-
-	private NBTTagCompound(boolean noMap)
-	{
+		//The pre-sized map is deliberately gone: the map has to come from the
+		//vanilla constructor so that a coremod-swapped implementation stays
+		//consistent with the copy() such a coremod overwrites.
+		return new NBTTagCompound();
 	}
 
 	@SuppressWarnings("unchecked")
