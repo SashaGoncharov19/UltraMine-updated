@@ -70,10 +70,26 @@ jobs:
         id: ver
         run: echo "version=indev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build jars and server distribution
+      # Unit tests run before anything is packaged: the parts of the core that
+      # can be exercised without a live server (off-heap chunk storage, compat
+      # shims, helpers) must pass on their own before we spend time on a boot.
+      - name: Run unit tests
         working-directory: ultramine/ultrasource
         run: |
           chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace test
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ steps.ver.outputs.version }}
+          path: ultramine/ultrasource/build/reports/tests/test
+          if-no-files-found: ignore
+
+      - name: Build jars and server distribution
+        working-directory: ultramine/ultrasource
+        run: |
           ./gradlew --no-daemon --stacktrace \
             -Poverride_version='${{ steps.ver.outputs.version }}' \
             jar jar_source jar_server jar_client serverDist

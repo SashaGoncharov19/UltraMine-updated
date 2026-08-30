@@ -109,6 +109,25 @@ dependencies {
 	runtimeServer 'mysql:mysql-connector-java:5.1.49'
 
 	testCompile "org.spockframework:spock-core:1.1-groovy-2.4-rc-1"
+	testCompile 'junit:junit:4.13.2'
+}
+
+//Unit tests cover the parts of the core that can run without a live server:
+//off-heap chunk storage, the compat shims and the pure helpers. `gradlew test`
+//runs them; CI runs them on every build before anything is packaged.
+test {
+	useJUnit()
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+		exceptionFormat 'full'
+	}
+	//the off-heap allocator and the modern-Java shims need the same JVM access
+	//the server itself asks for
+	if (JavaVersion.current().isJava9Compatible()) {
+		jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+				'--add-opens', 'java.base/java.lang.invoke=ALL-UNNAMED',
+				'--add-opens', 'java.base/java.util=ALL-UNNAMED'
+	}
 }
 
 task injectVersion(type: SpeicialClassTransformTask) {
