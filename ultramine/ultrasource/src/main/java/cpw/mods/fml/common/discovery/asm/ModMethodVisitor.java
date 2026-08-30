@@ -12,7 +12,7 @@ public class ModMethodVisitor extends MethodVisitor {
 
 	public ModMethodVisitor(String name, String desc, ASMModParser discoverer)
 	{
-		super(Opcodes.ASM5);
+		super(Opcodes.ASM9);
 		this.methodName = name;
 		this.methodDescriptor = desc;
 		this.discoverer = discoverer;
