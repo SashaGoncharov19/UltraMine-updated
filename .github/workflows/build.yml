@@ -18,6 +18,10 @@ on:
         description: 'Java version for the modpack boot test'
         required: false
         default: '8'
+      modpack_exclude:
+        description: 'Modpack boot test: space-separated mod filename globs to remove before booting (e.g. "endlessids*")'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -215,6 +219,12 @@ jobs:
             printf 'general {\n    B:enablePhosphor=false\n}\n' > config/archaicfix.cfg
             echo 'archaicfix.cfg not shipped by the pack - wrote one disabling Phosphor'
           fi
+          # Mods that cannot coexist with this core can be dropped for the test.
+          for pat in ${{ inputs.modpack_exclude }}; do
+            for f in mods/$pat; do
+              [ -e "$f" ] && { rm -rf "$f"; echo "excluded $(basename "$f")"; }
+            done
+          done
           MODERN_FLAGS=""
           if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then
             MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"
