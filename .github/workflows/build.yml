@@ -103,19 +103,19 @@ jobs:
           (java -Xms512M -Xmx2G -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
-          for i in $(seq 1 96); do
+          for i in $(seq 1 90); do
             grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
-            sleep 5
+            sleep 2
           done
           if [ "$booted" != 1 ]; then
-            echo '::error::Server failed to boot (no "Done" within 8 min)'
+            echo '::error::Server failed to boot (no "Done" within 3 min)'
             tail -c 20000 console.log
             exit 1
           fi
           echo stop >&9
-          for i in $(seq 1 24); do [ -f exitcode ] && break; sleep 5; done
-          [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
+          for i in $(seq 1 30); do [ -f exitcode ] && break; sleep 2; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 1 min, killing'; pkill -9 -f "$JAR" || true; }
           echo '--- last console lines ---'
           tail -n 40 console.log
           # log4j StatusLogger errors mean the logging config/plugins are broken
@@ -157,10 +157,10 @@ jobs:
           (java -Xms512M -Xmx2G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
-          for i in $(seq 1 96); do
+          for i in $(seq 1 90); do
             grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
-            sleep 5
+            sleep 2
           done
           if [ "$booted" != 1 ]; then
             echo '::error::Server failed to boot on Java 25'
@@ -169,7 +169,7 @@ jobs:
             exit 1
           fi
           echo stop >&9
-          for i in $(seq 1 24); do [ -f exitcode ] && break; sleep 5; done
-          [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
+          for i in $(seq 1 30); do [ -f exitcode ] && break; sleep 2; done
+          [ -f exitcode ] || { echo '::warning::Server did not stop within 1 min, killing'; pkill -9 -f "$JAR" || true; }
           echo '--- last console lines ---'
           tail -n 60 console.log
