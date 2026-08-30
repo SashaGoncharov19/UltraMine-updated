@@ -224,6 +224,17 @@ jobs:
           done
           if [ "$booted" != 1 ]; then
             echo '::error::Server failed to boot with the modpack'
+            # the FIRST initializer failure carries the real cause; the tail
+            # usually shows only the secondary "Could not initialize class"
+            for pat in 'ExceptionInInitializerError' 'Could not initialize class' 'LoaderException'; do
+              n=$(grep -nFm1 "$pat" console.log | cut -d: -f1)
+              if [ -n "$n" ]; then
+                echo "--- first '$pat' (console line $n) ---"
+                start=$((n>15 ? n-15 : 1))
+                sed -n "${start},$((n+150))p" console.log
+                break
+              fi
+            done
             echo '--- last 200 console lines ---'
             tail -n 200 console.log
             for f in crash-reports/*.txt; do [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }; done
