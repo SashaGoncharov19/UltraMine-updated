@@ -76,35 +76,58 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 #### Coremod-heavy packs on Java 25: where it stands
 
 The bare server boots on Java 25 and is a CI gate. A pack the size of GT New
-Horizons does not, yet, and the reason is one thing in three costumes: from Java
-9 the application class loader is `jdk.internal.loader.ClassLoaders$AppClassLoader`,
-and launchwrapper, FML and Mixin all assume the loader that loaded them is a
-`URLClassLoader`. Each was diagnosed from a real boot, and each fix moved the
-failure to the next one:
+Horizons does not, yet. Three core-side defects were found and fixed, and what
+remains is not core-side. Each was diagnosed from a real boot; the modpack job
+takes `modpack_variant` so the pack and the JVM can be varied one at a time,
+which is what separated the two.
+
+Fixed, all of them the same mistake in different places - from Java 9 the
+application class loader is not a `URLClassLoader`, and the 1.7.10 stack assumes
+it is:
 
 1. `IllegalArgumentException: ... AppClassLoader is not an instance of
    java.net.URLClassLoader`, twenty times over, then `NoClassDefFoundError` on a
    coremod's own class. FML puts coremod jars on that loader so cascading
-   tweakers can be found; the reflective `addURL` cannot work there.
-2. `MixinException: Attempted to init the mixin environment in the wrong
-   classloader`. Mixin compares the loader of its tweaker against the loader of
-   `Launch`; splicing an extra loader in to solve (1) is by definition not that
-   one. Fixed properly by running the whole launch inside one `URLClassLoader`
-   built from the class path (`ModernJavaLaunch.createBootClassLoader`), which
-   is the arrangement Java 8 has by construction - so FML's stock reflection
-   works again and Mixin's check passes.
-3. **Where it stops today:** `ClassCastException: java.net.URLClassLoader cannot
-   be cast to LaunchClassLoader` in `ModClassLoader`, reached from
-   `FMLCommonHandler.<clinit>` - `cpw.mods.fml.common.Loader` ends up defined by
-   the boot loader rather than by the `LaunchClassLoader`, because a coremod jar
-   added to the boot loader resolves FML's classes through it. The same jar
-   reaches the application loader on Java 8 without this happening, so the
-   difference is in how launchwrapper's own delegation orders the two - which
-   needs launchwrapper's source in hand to settle rather than another guess.
+   tweakers can be found, by reflecting `URLClassLoader.addURL`. That loader is
+   still extendable, just not that way: `CoreModManager` now calls
+   `ClassLoaders$AppClassLoader.appendToClassPathForInstrumentation`, the method
+   behind `Instrumentation.appendToSystemClassLoaderSearch`, which puts the jar
+   on the real application class path exactly as Java 8 does. Needs
+   `--add-opens java.base/jdk.internal.loader=ALL-UNNAMED`, which the generated
+   start scripts pass.
+2. `ModernJavaLaunch` read only `java.class.path`, where launchwrapper on Java 8
+   asks the application loader for its URLs - which includes what the jar
+   manifests chain in through `Class-Path`, i.e. `libraries/`. It now reads the
+   same thing.
+3. `UnsupportedOperationException: NestMember requires ASM7`. The core ships ASM
+   9 but five of its own visitors were still built with `Opcodes.ASM5`, and an
+   ASM5 visitor throws rather than reads when it meets a class-file attribute
+   newer than Java 8. One of them, `TerminalTransformer`, sees every class that
+   loads.
 
-None of this affects Java 8, where the stock path runs untouched, and none of it
-affects a server without coremods on Java 25, which is covered by the smoke gate
-on every build. **Run coremod-heavy packs on Java 8 until this is finished.**
+What remains is third-party bytecode that Java 8's verifier accepted and modern
+ones reject. Neither is reachable from here:
+
+- **`NestMember requires ASM7` again, after (3).** The visitor that throws now
+  belongs to a mod's own coremod transformer, built against ASM 4 or 5 against
+  the ASM the core provides. Verified: the error survives the core's own fix.
+- **`IncompatibleClassChangeError: Inconsistent constant pool data ... is
+  CONSTANT_MethodRef and should be CONSTANT_InterfaceMethodRef`** on a mod's
+  lambda-carrying interface. Checked against the core's own transformer shapes
+  first, locally and against real class files: both the `ClassVisitor` pipeline
+  (`TerminalTransformer`) and the `ClassNode` pipeline (every other transformer
+  here) round-trip `InterfaceMethodref` and `Handle.isInterface` correctly at
+  ASM5 and ASM9 alike, so the malformed entry comes from a mod's transformer or
+  from the mod jar as shipped.
+
+Both are what GT New Horizons' own modern stack (lwjgl3ify / RetroFuturaBootstrap)
+addresses by replacing launchwrapper and patching mods - a project of its own,
+not a fix to this core. The alternative available here, skipping a mod's
+transformer when it throws, would mean running mods whose transformations
+silently did not apply, which is worse than not starting.
+
+**So: run coremod-heavy packs on Java 8.** The bare server runs on Java 8
+through 25 and both are CI gates.
 
 Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
 1. **ASM 5 → 9.x** — **DONE** (runtime): `asm-debug-all:5.0.3` replaced with `asm`/`asm-tree`/`asm-commons` **9.10.1**; the only removed-API usages (`RemappingClassAdapter`/`RemappingMethodAdapter` in FML's `DeobfuscationTransformer`/`FMLRemappingAdapter`) ported to `ClassRemapper`/`MethodRemapper`. The transform pipeline can now parse modern class files. buildSrc deliberately stays on ASM 5 + SpecialSource 1.7.3 (build-time only, runs on JDK 8 in CI; SpecialSource 1.7.3 itself needs the old ASM API).
