@@ -27,7 +27,7 @@ public class NBTTagCompound extends NBTBase
 
 	public NBTTagCompound()
 	{
-		this(0);
+		createMap(0);
 	}
 
 	void write(DataOutput p_74734_1_) throws IOException
@@ -346,7 +346,7 @@ public class NBTTagCompound extends NBTBase
 
 	public NBTBase copy()
 	{
-		NBTTagCompound nbttagcompound = new NBTTagCompound(tagMap.size());
+		NBTTagCompound nbttagcompound = withExpectedSize(tagMap.size());
 		Iterator iterator = this.tagMap.keySet().iterator();
 
 		while (iterator.hasNext())
@@ -437,9 +437,19 @@ public class NBTTagCompound extends NBTBase
 		this.tagMap = tagMap;
 	}
 
-	public NBTTagCompound(int expectedSize)
+	/** Replaces the former public (int) constructor. Coremods built against
+	 * stock 1.7.10 inject their own {@code <init>(I)V} into this class (GTNH's
+	 * NBT optimizations do) - a colliding signature in the base class file is a
+	 * ClassFormatError at class load, so the core must not declare it. */
+	public static NBTTagCompound withExpectedSize(int expectedSize)
 	{
-		createMap(expectedSize);
+		NBTTagCompound tag = new NBTTagCompound(true);
+		tag.createMap(expectedSize);
+		return tag;
+	}
+
+	private NBTTagCompound(boolean noMap)
+	{
 	}
 
 	@SuppressWarnings("unchecked")

@@ -74,7 +74,7 @@ public abstract class StructureStart
 		nbttagcompound.setInteger("ChunkX", p_143021_1_);
 		nbttagcompound.setInteger("ChunkZ", p_143021_2_);
 		nbttagcompound.setTag("BB", this.boundingBox.func_151535_h());
-		NBTTagList nbttaglist = new NBTTagList(components.size());
+		NBTTagList nbttaglist = NBTTagList.withExpectedSize(components.size());
 		Iterator iterator = this.components.iterator();
 
 		while (iterator.hasNext())
