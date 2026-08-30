@@ -140,6 +140,7 @@ dependent mod with it.
 | NBT map allocated in `createMap()` rather than inline in `<init>()` | `ClassCastException: HashMap → Object2ObjectOpenHashMap` on every `ItemStack.copy()` — Hodgepodge rewrites the inline `new HashMap()` and overwrites `copy()` to cast it | allocate inline, vanilla-shaped |
 | `DataWatcher.watchedObjects` as `WatchableObject[32]` | `@Shadow field field_75695_b was not located` (CoreTweaks) → class fails to load | `WatchableObjectMap`: a `Map` outside, id-indexed array inside, grows past 32 |
 | Forge prelude locals dropped from `World.updateEntityWithOptionalForce` | ArchaicFix's LVT capture fails the whole `World` class | locals restored, behaviour unchanged |
+| An extra method-scope local in `EntityTrackerEntry.sendLocationToAllClients` | `InjectionError: LVT ... has incompatible changes` → `NoClassDefFoundError: EntityTrackerEntry` (ArchaicFix) | the local was a copy of a field it already writes; use the field |
 | Every Java-7+ class re-emitted through `COMPUTE_FRAMES` | mod classes fail to link (`GuiContainer` and friends are stripped server-side, so merge types dead-end) | untouched classes pass through byte-identical |
 | log4j upgraded to 2.17.2 while mods target 2.0-beta9 | `NoSuchMethodError` in mod static initializers (GregTech), `NoClassDefFoundError: core/helpers/Loader` (CoFHCore) | call bridge for removed factory signatures + type remap for the moved `core.helpers` package |
 
