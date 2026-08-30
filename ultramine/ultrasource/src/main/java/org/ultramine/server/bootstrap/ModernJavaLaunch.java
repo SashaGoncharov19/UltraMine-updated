@@ -1,8 +1,8 @@
 package org.ultramine.server.bootstrap;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
+import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
@@ -12,6 +12,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
@@ -28,46 +30,27 @@ import cpw.mods.fml.relauncher.SideOnly;
  * Replacement for launchwrapper's {@link Launch} entry point on Java 9+, where
  * the application class loader is no longer a {@link java.net.URLClassLoader}
  * and Launch's constructor fails with a ClassCastException. Reimplements the
- * same tweaker flow, but builds the {@link LaunchClassLoader} from the
- * java.class.path property instead of casting the app class loader.
+ * same tweaker flow, but builds the {@link LaunchClassLoader} from the class
+ * path instead of casting the app class loader.
  *
- * Only used when ServerLaunchWrapper detects a non-URLClassLoader app loader;
- * on Java 8 the stock launchwrapper path runs unchanged.
+ * <p>It is also loaded and run from inside {@link #createBootClassLoader() a
+ * URLClassLoader of its own}, which is what makes the rest of the stack work
+ * unchanged: launchwrapper and FML both assume the loader that loaded them is a
+ * URLClassLoader, and Mixin refuses to start if its tweaker did not come from
+ * the same loader as {@code Launch}. Running the whole launch inside one
+ * URLClassLoader gives all three what Java 8 gives them for free.
+ *
+ * <p>Only used when ServerLaunchWrapper detects a non-URLClassLoader app
+ * loader; on Java 8 the stock launchwrapper path runs unchanged.
  */
 @SideOnly(Side.SERVER)
 public class ModernJavaLaunch
 {
 	public static void launch(String[] args) throws Exception
 	{
-		List<URL> classpath = new ArrayList<URL>();
-		for(String entry : System.getProperty("java.class.path").split(File.pathSeparator))
-		{
-			if(!entry.isEmpty())
-				classpath.add(new File(entry).toURI().toURL());
-		}
-
-		LaunchClassLoader classLoader = new LaunchClassLoader(classpath.toArray(new URL[0]));
+		LaunchClassLoader classLoader = new LaunchClassLoader(classPathUrls());
 		Launch.classLoader = classLoader;
 		Launch.blackboard = new HashMap<String, Object>();
-
-		/*
-		 * LaunchClassLoader hands its excluded packages - launchwrapper's own,
-		 * log4j, and every tweaker's package - to a delegation parent, which it
-		 * fixes at construction to whatever loaded it: the application class
-		 * loader. FML needs to put coremod jars there, because that is where a
-		 * cascading tweaker gets loaded from, and it does so by reflecting
-		 * URLClassLoader.addURL onto it. On Java 9+ the application loader is not
-		 * a URLClassLoader and cannot be extended at all, so every coremod that
-		 * ships a cascading tweaker would silently fail to load.
-		 *
-		 * So an appendable loader is installed in that position instead. It
-		 * starts empty and delegates to the application loader, which makes it
-		 * transparent - every class still resolves exactly where it did - until
-		 * FML adds a coremod jar to it, which is the whole point.
-		 */
-		URLClassLoader appendableParent = new URLClassLoader(new URL[0], ModernJavaLaunch.class.getClassLoader());
-		if(installDelegationParent(classLoader, appendableParent))
-			Launch.blackboard.put("ultramine.parentClassLoader", appendableParent);
 
 		Thread.currentThread().setContextClassLoader(classLoader);
 
@@ -146,52 +129,115 @@ public class ModernJavaLaunch
 	}
 
 	/**
-	 * Point launchwrapper's excluded-package delegation at our own loader.
+	 * The loader everything below the entry point runs in.
 	 *
-	 * <p>The field holding it is private with no setter, and launchwrapper ships
-	 * as a binary dependency, so there is nothing to reach it but reflection. It
-	 * is found by type rather than by name - it is the one non-static
-	 * {@code ClassLoader} field on the class - so a renamed field does not break
-	 * this, and a launchwrapper that genuinely does not work this way is
-	 * recognised rather than guessed at.
+	 * <p>From Java 9 the application class loader is
+	 * {@code jdk.internal.loader.ClassLoaders$AppClassLoader}: not a
+	 * URLClassLoader, and not extendable. Three things in this stack need it to
+	 * be both - launchwrapper casts it, FML adds coremod jars to it so that
+	 * cascading tweakers can be loaded, and Mixin refuses to start unless its
+	 * tweaker came from the same loader that loaded {@code Launch}. Rather than
+	 * work around each of those separately, the class path is rebuilt in a
+	 * URLClassLoader and the launch runs inside it, where all three hold.
 	 *
-	 * <p>Failure is loud but not fatal: without it the server still runs
-	 * everything that does not need a cascading tweaker, which is exactly what it
-	 * did before, and a message beats twenty reflection stack traces later.
+	 * <p>Its parent is the platform loader, not the application loader, so that
+	 * {@code Launch} and everything else really is defined here rather than
+	 * inherited from a loader FML cannot extend.
 	 */
-	private static boolean installDelegationParent(LaunchClassLoader classLoader, ClassLoader parent)
+	public static URLClassLoader createBootClassLoader()
 	{
-		Field found = null;
-		for(Field field : LaunchClassLoader.class.getDeclaredFields())
+		return new URLClassLoader(classPathUrls(), platformClassLoader());
+	}
+
+	/**
+	 * The application class path, the way the application loader sees it: the
+	 * {@code java.class.path} entries plus whatever their manifests chain in
+	 * through {@code Class-Path}, which is how the server jar reaches
+	 * {@code libraries/}.
+	 */
+	private static URL[] classPathUrls()
+	{
+		List<URL> urls = new ArrayList<URL>();
+		Set<String> visited = new HashSet<String>();
+		for(String entry : System.getProperty("java.class.path", "").split(File.pathSeparator))
 		{
-			if(field.getType() == ClassLoader.class && !Modifier.isStatic(field.getModifiers()))
+			if(!entry.isEmpty())
+				addClassPathEntry(new File(entry), urls, visited);
+		}
+		return urls.toArray(new URL[0]);
+	}
+
+	private static void addClassPathEntry(File file, List<URL> urls, Set<String> visited)
+	{
+		String key;
+		try
+		{
+			key = file.getCanonicalPath();
+		}
+		catch(IOException e)
+		{
+			key = file.getAbsolutePath();
+		}
+		if(!visited.add(key))
+			return;
+
+		try
+		{
+			urls.add(file.toURI().toURL());
+		}
+		catch(MalformedURLException e)
+		{
+			return;
+		}
+
+		if(!file.isFile())
+			return;
+
+		//Class-Path entries are relative to the jar that declares them
+		JarFile jar = null;
+		try
+		{
+			jar = new JarFile(file);
+			Manifest manifest = jar.getManifest();
+			if(manifest == null)
+				return;
+			String classPath = manifest.getMainAttributes().getValue("Class-Path");
+			if(classPath == null)
+				return;
+			File dir = file.getAbsoluteFile().getParentFile();
+			for(String entry : classPath.split(" "))
 			{
-				if(found != null)
+				if(!entry.isEmpty())
+					addClassPathEntry(new File(dir, entry), urls, visited);
+			}
+		}
+		catch(IOException e)
+		{
+			//not a readable jar; its own URL is already recorded
+		}
+		finally
+		{
+			if(jar != null)
+			{
+				try
 				{
-					found = null;
-					break;
+					jar.close();
 				}
-				found = field;
+				catch(IOException ignored) {}
 			}
 		}
+	}
 
-		if(found != null)
+	/** Java 9+ only, and this class only ever runs there; null means bootstrap. */
+	private static ClassLoader platformClassLoader()
+	{
+		try
 		{
-			try
-			{
-				found.setAccessible(true);
-				found.set(classLoader, parent);
-				return true;
-			}
-			catch(Exception e)
-			{
-				System.err.println("Could not redirect launchwrapper's class loader delegation: " + e);
-			}
+			return (ClassLoader) ClassLoader.class.getMethod("getPlatformClassLoader").invoke(null);
 		}
-
-		System.err.println("This JVM has no extendable application class loader (Java 9+) and launchwrapper's "
-				+ "delegation parent could not be replaced. Mods that ship a cascading tweaker will not load. "
-				+ "Run the server on Java 8 if the pack needs them.");
-		return false;
+		catch(Exception e)
+		{
+			return null;
+		}
 	}
 }

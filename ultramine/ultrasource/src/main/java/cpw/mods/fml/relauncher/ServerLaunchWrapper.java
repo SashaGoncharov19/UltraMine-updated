@@ -51,10 +51,14 @@ public class ServerLaunchWrapper {
 			}
 			else
 			{
-				//Java 9+: the app class loader is no longer a URLClassLoader and
-				//launchwrapper's Launch constructor fails on it - use our
-				//classpath-property-based reimplementation of the same flow
-				Class<?> modernLaunch = Class.forName("org.ultramine.server.bootstrap.ModernJavaLaunch", true, getClass().getClassLoader());
+				//Java 9+: the app class loader is no longer a URLClassLoader, and
+				//launchwrapper, FML and Mixin all depend on it being one - see
+				//ModernJavaLaunch.createBootClassLoader. So rebuild the class path
+				//in a URLClassLoader and run the launch from inside it.
+				Class<?> bootstrap = Class.forName("org.ultramine.server.bootstrap.ModernJavaLaunch", true, getClass().getClassLoader());
+				ClassLoader bootLoader = (ClassLoader)bootstrap.getMethod("createBootClassLoader").invoke(null);
+				Thread.currentThread().setContextClassLoader(bootLoader);
+				Class<?> modernLaunch = Class.forName("org.ultramine.server.bootstrap.ModernJavaLaunch", true, bootLoader);
 				modernLaunch.getMethod("launch", String[].class).invoke(null, (Object)allArgs);
 			}
 		}

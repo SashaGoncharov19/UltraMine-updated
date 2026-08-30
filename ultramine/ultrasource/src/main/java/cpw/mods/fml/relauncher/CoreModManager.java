@@ -393,51 +393,39 @@ public class CoreModManager {
 	private static Method ADDURL;
 
 	/**
-	 * ultramine: the key launchwrapper's excluded-package parent lives under on
-	 * Java 9+. See {@code org.ultramine.server.bootstrap.ModernJavaLaunch}.
-	 */
-	private static final String UM_PARENT_CLASSLOADER = "ultramine.parentClassLoader";
-
-	/**
 	 * A cascading tweaker is loaded through the class loader that
 	 * {@link LaunchClassLoader} delegates excluded packages to, not through the
 	 * LaunchClassLoader itself - so its jar has to reach that loader as well.
 	 *
-	 * <p>Stock FML reflects {@code URLClassLoader.addURL} onto the application
-	 * class loader. That works on Java 8 and only on Java 8: from Java 9 the
-	 * application loader is {@code jdk.internal.loader.ClassLoaders$AppClassLoader},
-	 * the call fails with an IllegalArgumentException, and with it goes the
-	 * {@code classLoader.addURL} and the tweak injection that followed it - so
-	 * every coremod that ships a cascading tweaker silently never loads, and the
-	 * first class from one of them ends the launch.
+	 * <p>That loader has to be a URLClassLoader for this to be possible at all.
+	 * On Java 8 it is, because it is the application class loader. From Java 9
+	 * the application loader is
+	 * {@code jdk.internal.loader.ClassLoaders$AppClassLoader}, which is neither -
+	 * so the server does not launch from it: {@code ModernJavaLaunch} rebuilds
+	 * the class path in a URLClassLoader and runs the whole launch inside it,
+	 * and this finds that one here exactly as it finds the application loader on
+	 * Java 8.
 	 *
-	 * <p>On such a JVM, {@code ModernJavaLaunch} has already installed an
-	 * appendable loader in that delegation position; this adds to it instead.
+	 * <p>Anything else is reported as itself rather than as the
+	 * IllegalArgumentException a blind reflective call would raise twenty times
+	 * over, once per coremod, with no hint of what is wrong.
 	 */
 	private static void addToTweakerClassPath(LaunchClassLoader classLoader, URL url) throws Exception
 	{
+		ClassLoader loaderOfLaunchwrapper = classLoader.getClass().getClassLoader();
+		if (!(loaderOfLaunchwrapper instanceof URLClassLoader))
+		{
+			throw new IllegalStateException("launchwrapper was loaded by " + loaderOfLaunchwrapper.getClass().getName()
+					+ ", which cannot be extended, so a cascading tweaker cannot be made visible to it. "
+					+ "Mods that ship one will not load.");
+		}
+
 		if (ADDURL == null)
 		{
 			ADDURL = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
 			ADDURL.setAccessible(true);
 		}
-
-		ClassLoader appClassLoader = classLoader.getClass().getClassLoader();
-		if (appClassLoader instanceof URLClassLoader)
-		{
-			ADDURL.invoke(appClassLoader, url);
-			return;
-		}
-
-		Object appendable = Launch.blackboard != null ? Launch.blackboard.get(UM_PARENT_CLASSLOADER) : null;
-		if (!(appendable instanceof URLClassLoader))
-		{
-			throw new IllegalStateException("The application class loader is " + appClassLoader.getClass().getName()
-					+ ", which cannot be extended, and no appendable parent loader was installed. "
-					+ "Cascading tweakers cannot be loaded on this JVM.");
-		}
-
-		ADDURL.invoke(appendable, url);
+		ADDURL.invoke(loaderOfLaunchwrapper, url);
 	}
 
 	private static void handleCascadingTweak(File coreMod, JarFile jar, String cascadedTweaker, LaunchClassLoader classLoader, Integer sortingOrder)
