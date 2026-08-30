@@ -22,6 +22,10 @@ on:
         description: 'Modpack boot test: space-separated mod filename globs to remove before booting (e.g. "endlessids*")'
         required: false
         default: ''
+      chunk_storage:
+        description: 'Modpack boot test: chunk storage backend - offheap (default) or vanilla (heap arrays, for coremods that patch chunk storage)'
+        required: false
+        default: 'offheap'
 
 permissions:
   contents: read
@@ -224,11 +228,18 @@ jobs:
           for d in mods config scripts resources; do
             [ -d "$BASE/$d" ] && cp -r "$BASE/$d" . && echo "copied $d"
           done
+          STORAGE='${{ inputs.chunk_storage }}'
+          STORAGE=${STORAGE:-offheap}
           # ArchaicFix's Phosphor lighting backport rewrites ExtendedBlockStorage
-          # to read and write vanilla's NibbleArray light fields directly. This
-          # core keeps chunk light off-heap and has no such fields, so the two
-          # lighting implementations cannot coexist - turn Phosphor off.
-          if [ -f config/archaicfix.cfg ]; then
+          # to read and write vanilla's NibbleArray light fields directly. Off-heap
+          # there are no such fields and the two lighting implementations cannot
+          # coexist, so Phosphor is turned off; in vanilla storage mode the fields
+          # are there and live, which is exactly what the test is checking - so the
+          # pack's own setting is left alone.
+          if [ "$STORAGE" = vanilla ]; then
+            echo "chunk storage: vanilla heap arrays - leaving the pack's own Phosphor setting alone"
+            grep -n 'enablePhosphor' config/archaicfix.cfg 2>/dev/null || echo 'archaicfix.cfg not shipped by the pack'
+          elif [ -f config/archaicfix.cfg ]; then
             sed -i 's/\(B:enablePhosphor=\)true/\1false/' config/archaicfix.cfg
             echo "archaicfix Phosphor setting: $(grep -n 'enablePhosphor' config/archaicfix.cfg || echo 'key not present')"
           else
@@ -249,8 +260,9 @@ jobs:
             MODERN_FLAGS="$MODERN_FLAGS --sun-misc-unsafe-memory-access=allow"
           fi
           echo "Booting $JAR with $(ls mods | wc -l) mod files on $(java -version 2>&1 | head -n 1)"
+          echo "chunk storage mode: $STORAGE"
           mkfifo in
-          (set +e; java -Xms2G -Xmx6G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          (set +e; java -Xms2G -Xmx6G $MODERN_FLAGS -Dorg.ultramine.chunk.storage="$STORAGE" -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
           # modded boots are slow - 20 minute budget
@@ -297,7 +309,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: modpack-console-java${{ inputs.modpack_java }}
+          name: modpack-console-java${{ inputs.modpack_java }}-${{ inputs.chunk_storage || 'offheap' }}
           path: |
             smoke/console.log
             smoke/crash-reports/
