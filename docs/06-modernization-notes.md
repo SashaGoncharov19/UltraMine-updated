@@ -169,3 +169,72 @@ same subsystem, so one side has to give:
 Everything else in the pack — 293 of 294 mods including GregTech, Thaumcraft,
 AE2, Railcraft, Forestry and the whole GTNH coremod stack — got through mod
 construction and pre-init on this core.
+
+## H. Plan: running GTNH-class packs (the block-id ceiling)
+
+Section G ends on the finding that blocks the largest packs: `MemSlot` packs a
+block as 12 bits of id (8-bit LSB + 4-bit MSB nibble) plus 4 of metadata — 4096
+ids, vanilla's ceiling — while GT New Horizons asks for id 10617. This section
+is the plan for lifting that, written after tracing how the ecosystem actually
+solves it.
+
+### What the ecosystem does (and why "just widen MemSlot" is the wrong first move)
+
+EndlessIDs does not serialize chunks itself. It registers a `DataManager` with
+**ChunkAPI** (`com.falsepattern.chunk.api`), which owns the extra chunk data end
+to end: NBT persistence, the chunk packets, and the sub-chunk hooks mods read
+through. GTNH ships ChunkAPI as a coremod (`chunkapicore` in the pack's mod
+list), and EndlessIDs is one of its clients.
+
+That reframes the problem. Inventing our own wider-id format would be a format
+no client, no world-editor and no other mod understands — the pack's own client
+would not read our chunks. Compatibility here means *letting the ecosystem's
+mechanism work*, not competing with it. And that mechanism assumes vanilla's
+chunk shape: heap `byte[]`/`NibbleArray` fields it can shadow, extend and
+serialize.
+
+### The approach: a chunk storage mode, chosen at startup
+
+`ExtendedBlockStorage` gains two storage backends behind its existing accessors:
+
+1. **Off-heap (default, today's behaviour)** — one `MemSlot` per section,
+   12-bit ids. Lowest memory and GC pressure; what UltraMine exists for. Packs
+   that fit in 4096 block ids keep exactly what they have now.
+2. **Vanilla-shaped (compatibility)** — the stock `blockLSBArray`,
+   `blockMSBArray`, `blockMetadataArray`, `blocklightArray`, `skylightArray`
+   fields, live and patchable. In this mode ChunkAPI, EndlessIDs, NEID and
+   Phosphor apply exactly as they do on stock Forge, and the id ceiling becomes
+   whatever those mods raise it to.
+
+Everything else UltraMine does — async chunk IO, adaptive chunk streaming,
+incremental saving, the tick regulator, multiworld, permissions, economy, the
+mob-spawn engine, backups — is independent of which backend is in use and keeps
+working in both.
+
+The mode is a startup decision, not a per-chunk one: the backend must be fixed
+before any world loads, and it determines whether the class exposes fields for
+coremods to patch. Selection is explicit configuration, with detection of
+ChunkAPI/EndlessIDs/NEID/Phosphor used to *warn loudly* on a mismatch rather
+than to silently switch — a server that changes storage mode with existing
+worlds needs to know it is doing that.
+
+### Order of work
+
+1. Extend `MemSlotTest` to the target behaviour first, so the change has to turn
+   a red test green rather than being declared correct afterwards.
+2. Introduce the backend seam in `ExtendedBlockStorage` with the off-heap path
+   as the only implementation — no behaviour change, all tests still green.
+3. Add the vanilla-shaped backend, with the fields present and patchable.
+4. Boot the GTNH pack in compatibility mode in CI (the modpack job already
+   exists) and work through whatever the pack then hits.
+5. Only if a wider *off-heap* format still looks worthwhile after that: add a
+   second MSB nibble to `MemSlot` (+2048 bytes per section, ~17% more chunk
+   memory), the matching NBT tag with backward compatibility for chunks that
+   lack it, and the packet format — as a separate, opt-in step, with a
+   documented migration path. Ids that fit today must keep loading unchanged.
+
+### What each step must not break
+
+Existing worlds must load unchanged in the default mode; chunks written in one
+mode must be readable in that mode after a restart; and the Java 8 and Java 25
+smoke tests stay required throughout.
