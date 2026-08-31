@@ -367,7 +367,29 @@ jobs:
           unzip -q ../distributions/*-server-dist.zip
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
-          MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
+          # The jar manifest carries Add-Opens, so no --add-opens flags here:
+          # booting without them is what proves the attribute is doing its job,
+          # which is the only thing an operator on a hosting panel can rely on.
+          # Assert it is present and complete first, so a dropped attribute
+          # fails as itself rather than as a mystery boot failure.
+          echo '--- manifest Add-Opens ---'
+          # Manifest values wrap at 72 bytes with a leading space on the
+          # continuation, so join those lines back up before reading the value.
+          unzip -p "$JAR" META-INF/MANIFEST.MF | tr -d '\r' \
+            | sed -e ':a' -e 'N;$!ba' -e 's/\n //g' \
+            | grep '^Add-Opens:' | cut -d' ' -f2- \
+            | tr ' ' '\n' | sed '/^$/d' | sort > /tmp/got.txt
+          printf '%s\n' java.base/java.lang java.base/java.lang.invoke java.base/java.lang.reflect \
+            java.base/java.io java.base/java.net java.base/java.nio java.base/java.util \
+            java.base/java.util.jar java.base/java.util.zip java.base/java.util.concurrent \
+            java.base/java.util.concurrent.atomic java.base/java.text java.base/sun.nio.ch \
+            java.base/jdk.internal.loader | sort > /tmp/want.txt
+          if ! diff -u /tmp/want.txt /tmp/got.txt; then
+            echo '::error::Server jar manifest is missing Add-Opens entries'
+            exit 1
+          fi
+          echo "all $(wc -l < /tmp/want.txt) packages present"
+          MODERN_FLAGS="--sun-misc-unsafe-memory-access=allow"
           mkfifo in
           (set +e; java -Xms512M -Xmx2G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
