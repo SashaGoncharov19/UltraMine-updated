@@ -18,6 +18,7 @@ import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.NibbleArray;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import org.ultramine.server.chunk.ChunkSnapshot;
+import org.ultramine.server.chunk.alloc.ChunkStorageMode;
 import org.ultramine.server.internal.UMHooks;
 
 public class S21PacketChunkData extends Packet
@@ -36,6 +37,9 @@ public class S21PacketChunkData extends Packet
 	
 	private static final byte[] unloadSequence = new byte[] {0x78, (byte) 0x9C, 0x63, 0x64, 0x1C, (byte) 0xD9, 0x00, 0x00, (byte) 0x81, (byte) 0x80, 0x01, 0x01};
 	private ChunkSnapshot chunkSnapshot;
+
+	/** fixed for the life of the JVM, so the branches below fold away at JIT time */
+	private static final boolean VANILLA_SHAPED = ChunkStorageMode.isVanillaShaped();
 
 	public S21PacketChunkData() {}
 
@@ -197,6 +201,26 @@ public class S21PacketChunkData extends Packet
 		return this.field_149278_f;
 	}
 
+	/*
+	 * ultramine: this method keeps vanilla's shape on purpose. NEID rewrites chunk
+	 * packets to carry 16-bit block ids by redirecting the array getters here and
+	 * cancelling the copies that follow, and it anchors on exact positions:
+	 * getBlockLSBArray() with the System.arraycopy after it (ordinal 0),
+	 * getMetadataArray() with its arraycopy (ordinal 1), the first
+	 * getBlockMSBArray(), the first byte[] local and the second int local.
+	 *
+	 * Replacing all of that with slot copies left nothing to attach to, so the
+	 * mixin failed and this class - which every chunk send goes through - never
+	 * loaded. The off-heap fast path now sits beside the vanilla calls instead of
+	 * replacing them: the anchors stay present, and a server with no coremod that
+	 * wants them still does not pay for a materialized array per section. Note
+	 * that the deprecated getters log a warning with a stack trace on every call
+	 * off-heap, so taking the vanilla path unconditionally is not an option.
+	 *
+	 * The vanilla branch comes first in every pair so the arraycopy ordinals match
+	 * vanilla's, and locals are introduced exactly where vanilla introduces them so
+	 * the captured ordinals do too.
+	 */
 	public static S21PacketChunkData.Extracted func_149269_a(Chunk p_149269_0_, boolean p_149269_1_, int p_149269_2_)
 	{
 		int j = 0;
@@ -221,7 +245,8 @@ public class S21PacketChunkData extends Packet
 			{
 				extracted.field_150280_b |= 1 << l;
 
-				if (true/*aextendedblockstorage[l].getBlockMSBArray() != null*/)
+				//off-heap there is always MSB storage, which is what the old unconditional true meant
+				if (!VANILLA_SHAPED || aextendedblockstorage[l].getBlockMSBArray() != null)
 				{
 					extracted.field_150281_c |= 1 << l;
 					++k;
@@ -233,8 +258,17 @@ public class S21PacketChunkData extends Packet
 		{
 			if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty()) && (p_149269_2_ & 1 << l) != 0)
 			{
-				aextendedblockstorage[l].getSlot().copyLSB(abyte, j);
-				j += 4096;
+				if (VANILLA_SHAPED)
+				{
+					byte[] abyte1 = aextendedblockstorage[l].getBlockLSBArray();
+					System.arraycopy(abyte1, 0, abyte, j, abyte1.length);
+					j += abyte1.length;
+				}
+				else
+				{
+					aextendedblockstorage[l].getSlot().copyLSB(abyte, j);
+					j += 4096;
+				}
 			}
 		}
 
@@ -244,8 +278,17 @@ public class S21PacketChunkData extends Packet
 		{
 			if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty()) && (p_149269_2_ & 1 << l) != 0)
 			{
-				aextendedblockstorage[l].getSlot().copyBlockMetadata(abyte, j);
-				j += 2048;
+				if (VANILLA_SHAPED)
+				{
+					nibblearray = aextendedblockstorage[l].getMetadataArray();
+					System.arraycopy(nibblearray.data, 0, abyte, j, nibblearray.data.length);
+					j += nibblearray.data.length;
+				}
+				else
+				{
+					aextendedblockstorage[l].getSlot().copyBlockMetadata(abyte, j);
+					j += 2048;
+				}
 			}
 		}
 
@@ -253,8 +296,17 @@ public class S21PacketChunkData extends Packet
 		{
 			if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty()) && (p_149269_2_ & 1 << l) != 0)
 			{
-				aextendedblockstorage[l].getSlot().copyBlocklight(abyte, j);
-				j += 2048;
+				if (VANILLA_SHAPED)
+				{
+					nibblearray = aextendedblockstorage[l].getBlocklightArray();
+					System.arraycopy(nibblearray.data, 0, abyte, j, nibblearray.data.length);
+					j += nibblearray.data.length;
+				}
+				else
+				{
+					aextendedblockstorage[l].getSlot().copyBlocklight(abyte, j);
+					j += 2048;
+				}
 			}
 		}
 
@@ -264,8 +316,17 @@ public class S21PacketChunkData extends Packet
 			{
 				if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty()) && (p_149269_2_ & 1 << l) != 0)
 				{
-					aextendedblockstorage[l].getSlot().copySkylight(abyte, j);
-					j += 2048;
+					if (VANILLA_SHAPED)
+					{
+						nibblearray = aextendedblockstorage[l].getSkylightArray();
+						System.arraycopy(nibblearray.data, 0, abyte, j, nibblearray.data.length);
+						j += nibblearray.data.length;
+					}
+					else
+					{
+						aextendedblockstorage[l].getSlot().copySkylight(abyte, j);
+						j += 2048;
+					}
 				}
 			}
 		}
@@ -274,10 +335,20 @@ public class S21PacketChunkData extends Packet
 		{
 			for (l = 0; l < aextendedblockstorage.length; ++l)
 			{
-				if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty())/* && aextendedblockstorage[l].getBlockMSBArray() != null*/ && (p_149269_2_ & 1 << l) != 0)
+				if (aextendedblockstorage[l] != null && (l == 0 || !p_149269_1_ || !aextendedblockstorage[l].isEmpty())
+						&& (!VANILLA_SHAPED || aextendedblockstorage[l].getBlockMSBArray() != null) && (p_149269_2_ & 1 << l) != 0)
 				{
-					aextendedblockstorage[l].getSlot().copyMSB(abyte, j);
-					j += 2048;
+					if (VANILLA_SHAPED)
+					{
+						nibblearray = aextendedblockstorage[l].getBlockMSBArray();
+						System.arraycopy(nibblearray.data, 0, abyte, j, nibblearray.data.length);
+						j += nibblearray.data.length;
+					}
+					else
+					{
+						aextendedblockstorage[l].getSlot().copyMSB(abyte, j);
+						j += 2048;
+					}
 				}
 			}
 		}
