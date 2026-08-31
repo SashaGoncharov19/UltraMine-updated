@@ -127,7 +127,19 @@ public class ASMModParser
 
 	public boolean isBaseMod(List<String> rememberedTypes)
 	{
-		return getASMSuperType().equals(Type.getType("LBaseMod;")) || getASMSuperType().equals(Type.getType("Lnet/minecraft/src/BaseMod;"))|| rememberedTypes.contains(getASMSuperType().getClassName());
+		Type superType = getASMSuperType();
+		/*
+		 * ultramine: a class file with no super type is either java.lang.Object
+		 * or a module descriptor, and neither is a BaseMod. Without this the NPE
+		 * escapes the discoverer's per-entry loop and the *whole jar* is written
+		 * off as corrupt - so a mod shipped as a multi-release jar would simply
+		 * never load, with only a warning to say so.
+		 */
+		if (superType == null)
+		{
+			return false;
+		}
+		return superType.equals(Type.getType("LBaseMod;")) || superType.equals(Type.getType("Lnet/minecraft/src/BaseMod;")) || rememberedTypes.contains(superType.getClassName());
 	}
 
 	public void setBaseModProperties(String foundProperties)

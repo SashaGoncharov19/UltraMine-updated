@@ -59,7 +59,17 @@ public class JarDiscoverer implements ITypeDiscoverer
 			}
 			for (ZipEntry ze : Collections.list(jar.entries()))
 			{
-				if (ze.getName()!=null && ze.getName().startsWith("__MACOSX"))
+				/*
+				 * ultramine: META-INF/versions/** holds a multi-release jar's
+				 * alternates of classes that also exist unversioned, and a
+				 * module descriptor is not a class at all. Discovery wants
+				 * neither: the unversioned copy is what carries the @Mod
+				 * annotation, and parsing the alternates records entries under
+				 * names that are not class names.
+				 */
+				if (ze.getName() != null && (ze.getName().startsWith("__MACOSX")
+						|| ze.getName().startsWith("META-INF/versions/")
+						|| ze.getName().endsWith("module-info.class")))
 				{
 					continue;
 				}

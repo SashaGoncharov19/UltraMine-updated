@@ -211,6 +211,15 @@ Also fixed along the way: launchwrapper's transformer list is now copy-on-write
 (coremods register transformers *during* iteration — a stock CME), and a failed
 launch prints its real stack trace instead of being swallowed by `halt()`.
 
+And one that runs the other way round — a modern dependency tripping ancient
+code rather than the reverse. FML's mod discovery reads every class file in
+every jar and abandons the whole jar if one entry throws; `module-info.class`
+has no super type, `ASMModParser.isBaseMod` dereferenced it, and any jar
+carrying a module descriptor was written off as corrupt with a single warning.
+Harmless for the shipped log4j, which carries no mods — but a mod published as
+a multi-release jar would simply never load, and nothing would say why. Nothing
+to do with the JVM version: it happens on Java 8 too.
+
 ### Architectural: block-id width and lighting - resolved by a second storage backend
 
 These two could not be papered over: they are competing implementations of
