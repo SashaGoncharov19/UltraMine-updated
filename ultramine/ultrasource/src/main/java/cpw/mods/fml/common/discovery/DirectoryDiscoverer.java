@@ -89,6 +89,12 @@ public class DirectoryDiscoverer implements ITypeDiscoverer
 				exploreFileSystem(path + file.getName() + ".", file, harvestedMods, candidate, mc);
 				continue;
 			}
+			//ultramine: a module descriptor is not a class - see ASMModParser.isBaseMod
+			if (file.getName().equals("module-info.class"))
+			{
+				continue;
+			}
+
 			Matcher match = classFile.matcher(file.getName());
 
 			if (match.matches())
