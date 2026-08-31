@@ -16,8 +16,16 @@ The project was revived in 2026 after years of dormancy:
 | Java version | Status |
 |---|---|
 | **8** | Fully supported — the original code path, CI-boots every build |
-| 9 – 24 | Expected to work — the launch layer is version-adaptive and `start.sh` adds the required JVM flags automatically; not individually CI-tested |
+| 9 – 24 | Expected to work — the launch layer is version-adaptive; not individually CI-tested |
 | **25 (LTS)** | Fully supported — CI-boots every build on Temurin 25 |
+
+No JVM flags are needed on any version. The server jar's manifest carries the
+`Add-Opens` attribute, so `java -jar ultramine_core-*-server.jar` opens the JDK
+internals launchwrapper, FML and Mixin reflect into — this matters on hosting
+panels, where there is often nowhere to put JVM flags. (Java 8 ignores the
+attribute; it needs nothing.) On Java 23+ add
+`--sun-misc-unsafe-memory-access=allow` to silence the off-heap storage warning
+— that one cannot be expressed in a manifest.
 
 Note on mods: the **core** runs on Java 25, but individual 1.7.10 mods and coremods may rely on JVM internals removed after Java 8 — test your modpack. Scala-based mods will not work on modern JVMs (Scala 2.11 cannot run there).
 
@@ -27,7 +35,7 @@ Async chunk IO and background world generation, off-heap chunk storage, adaptive
 
 ## Downloads
 
-Grab the latest [release](../../releases). **`*-server-dist.zip`** is a ready-to-run server: unzip and run `start.sh` (Linux) or `start.cmd` (Windows) — the scripts pick the right JVM flags for your Java version. First boot creates `settings/server.yml`, `settings/worlds.yml` and the `worlds/` directory.
+Grab the latest [release](../../releases). **`*-server-dist.zip`** is a ready-to-run server: unzip and run `start.sh` (Linux) or `start.cmd` (Windows), or just `java -jar` the server jar — no JVM flags required. First boot creates `settings/server.yml`, `settings/worlds.yml` and the `worlds/` directory.
 
 Every release can be verified:
 
@@ -87,9 +95,40 @@ java -Dorg.ultramine.chunk.storage=vanilla -jar ultramine-server.jar
 The server logs which mode it started in, and warns if it finds mods that need
 the other one. It never switches on its own.
 
+## Running a modpack
+
+Take the pack's **`mods/`, `config/`, `scripts/` and `resources/`** and drop them
+next to the server jar. Do **not** copy the pack's `libraries/` folder or the
+Forge jar it ships — this core is a merged build of Minecraft, Forge, FML and
+UltraMine, and its own `libraries/` are named in the jar manifest's `Class-Path`.
+
+For **GT New Horizons**, take the **`server-java8`** pack variant and run it on
+Java 8:
+
+```
+java -server -Xms6G -Xmx6G -Dfml.readTimeout=180 \
+     -Dorg.ultramine.chunk.storage=vanilla \
+     -jar ultramine_core-*-server.jar nogui
+```
+
+The `server-java17-26` variant is a different arrangement: it ships **lwjgl3ify**
+and boots through `lwjgl3ify-forgePatches.jar`, a repackaged Forge that patches
+itself for modern Java. That replaces the core rather than running on it — point
+it at this jar and lwjgl3ify's relauncher aborts with *"does not support server
+launches"*, taking the boot down with it. Neither `lwjgl3ify-forgePatches.jar`
+nor its `java9args.txt` has a role here; this core does its own modern-Java
+launch, and the jar manifest supplies the opens they exist to pass.
+
+`eula.txt` is not needed — UltraMine does not carry that gate.
+
 ## Known incompatible mods
 
 FastCraft, ServerTools, ForgeEssentials, DragonAPI, zzzzzcustomconfigs — they coremod-patch the same internals UltraMine rewrites (see [docs/04](docs/04-vanilla-forge-modifications.md)).
+
+**lwjgl3ify** — a client-side LWJGL 3 shim whose server half is a relauncher that
+only works when it is the thing being launched. It refuses a server boot on any
+Java version and takes FML down with it. Remove it from `mods/`; nothing else in
+a pack depends on it server-side.
 
 **Mods that patch chunk storage** — EndlessIDs and NEID (which lift the 4095 block-id ceiling large packs run into), ChunkAPI, and **ArchaicFix's Phosphor backport** (`enablePhosphor`, on by default) — need `-Dorg.ultramine.chunk.storage=vanilla`. In the default off-heap mode they have nothing to patch: they either fail to load or silently do nothing, so leave Phosphor off (`B:enablePhosphor=false` in `config/archaicfix.cfg`) unless the server runs in `vanilla` mode. The rest of ArchaicFix works either way.
 

@@ -43,6 +43,23 @@ public class ModClassLoader extends URLClassLoader
 
 	public ModClassLoader(ClassLoader parent) {
 		super(new URL[0], null);
+		/*
+		 * ultramine: FML only works when launchwrapper's LaunchClassLoader is the
+		 * one that loaded it. When something initializes FML earlier - typically a
+		 * tweaker doing real work in acceptOptions, before launchwrapper hands
+		 * control over - this cast is the first place it surfaces, as a bare
+		 * ClassCastException naming FML's own classes. That reads like a fault in
+		 * this core, and it is not: name the loader that turned up and point at the
+		 * tweaker, so the log blames what actually went wrong.
+		 */
+		if (!(parent instanceof LaunchClassLoader))
+		{
+			throw new IllegalStateException("FML was initialized by " + parent.getClass().getName()
+					+ " rather than launchwrapper's LaunchClassLoader, so it cannot load mods. Something touched FML "
+					+ "before launchwrapper handed control over - almost always a tweaker that does its work in "
+					+ "acceptOptions instead of injectIntoClassLoader. The last \"Calling tweak class\" line above "
+					+ "names it; that mod is the one to remove.");
+		}
 		this.mainClassLoader = (LaunchClassLoader)parent;
 	}
 
