@@ -41,7 +41,8 @@ public class FMLTweaker implements ITweaker {
 			//trap System.exit calls, which TerminalTransformer also rewrites at the
 			//bytecode level, so continuing without one is safe.
 			//FMLRelaunchLog cannot be used this early - its side is not set yet
-			System.out.println("SecurityManager is not supported by this JVM; continuing without FML's exit-trapping manager");
+			System.out.println("No Security Manager on this JVM (Java 24+). Calls to System.exit, Runtime.exit and "
+					+ "Runtime.halt from mods are still trapped - TerminalTransformer rewrites them as the classes load.");
 		}
 		catch (SecurityException se)
 		{

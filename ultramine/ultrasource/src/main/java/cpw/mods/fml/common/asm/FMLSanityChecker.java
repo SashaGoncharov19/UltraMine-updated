@@ -166,7 +166,18 @@ public class FMLSanityChecker implements IFMLCallHook
 		}
 		if (!goodFML)
 		{
-			FMLRelaunchLog.severe("FML appears to be missing any signature data. This is not a good thing");
+			/*
+			 * ultramine: this notices a tampered Forge jar by checking that FML's
+			 * own classes carry the Forge project's signature. Nothing here is
+			 * signed by Forge - the core is built from source, FML included - so
+			 * the check can only ever come out this way, and at SEVERE it reads
+			 * like a warning about the very thing it cannot detect. Integrity is
+			 * published for each release instead, as SHA-256 sums and build
+			 * provenance attestations. The Minecraft certificate check above is
+			 * untouched; it still means what it says.
+			 */
+			FMLRelaunchLog.info("No FML signature data, as expected: this core is built from source rather than shipped as a signed Forge jar. "
+					+ "Release artifacts carry SHA-256 sums and build provenance attestations instead.");
 		}
 		return null;
 	}

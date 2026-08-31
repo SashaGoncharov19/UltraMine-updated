@@ -152,7 +152,19 @@ public class ClassPatchManager {
 			InputStream binpatchesCompressed = getClass().getResourceAsStream("/binpatches.pack.lzma");
 			if (binpatchesCompressed==null)
 			{
-				FMLRelaunchLog.log(Level.ERROR, "The binary patch set is missing. Either you are in a development environment, or things are not going to work!");
+				/*
+				 * ultramine: stock Forge ships Minecraft unmodified and patches it
+				 * at runtime from this file. This core is a merged source tree -
+				 * Minecraft, Forge, FML and UltraMine are compiled together and
+				 * reobfuscated - so the patches are already in the jar and there is
+				 * nothing to apply. Their absence is the normal state here, not a
+				 * broken install, and announcing it as an error that "things are
+				 * not going to work" is the first thing every operator reads.
+				 *
+				 * The unpacker below could not run on a modern JVM in any case:
+				 * Pack200 was removed in Java 14.
+				 */
+				FMLRelaunchLog.info("No binary patch set, as expected: this core ships Minecraft already patched, so there is nothing to apply at runtime");
 				return;
 			}
 			LzmaInputStream binpatchesDecompressed = new LzmaInputStream(binpatchesCompressed);
