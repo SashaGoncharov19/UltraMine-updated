@@ -144,7 +144,10 @@ jobs:
           exec 9>in
           booted=0
           for i in $(seq 1 90); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 2
           done
@@ -292,7 +295,10 @@ jobs:
           booted=0
           # modded boots are slow - 20 minute budget
           for i in $(seq 1 240); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 5
           done
@@ -413,7 +419,10 @@ jobs:
           exec 9>in
           booted=0
           for i in $(seq 1 90); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 2
           done
