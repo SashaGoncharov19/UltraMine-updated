@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
       modpack_url:
-        description: 'Modpack boot test: server pack zip URL, or "gtnh-latest" for the newest GTNH daily server pack (variant picked by modpack_java)'
+        description: 'Modpack boot test: server pack zip URL, "gtnh-release" for the pinned GTNH release pack (what the download page serves), or "gtnh-latest" for the newest daily build (a moving target - variant picked by modpack_java)'
         required: false
         default: ''
       modpack_java:
@@ -188,7 +188,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           URL='${{ inputs.modpack_url }}'
-          if [ "$URL" = "gtnh-latest" ]; then
+          # The pinned regression target: the pack the download page actually
+          # hands out. A gate whose subject moves cannot tell "we broke it" from
+          # "they changed it", so this one is pinned and bumped deliberately when
+          # GTNH cuts a release. Verified booting on this core since c4beaef.
+          GTNH_RELEASE='https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.8.4_Server_Java_8.zip'
+          if [ "$URL" = "gtnh-release" ]; then
+            URL="$GTNH_RELEASE"
+            echo "pinned GTNH release pack"
+          elif [ "$URL" = "gtnh-latest" ]; then
             # GTNH publishes daily server packs as GitHub release assets on
             # GTNewHorizons/GTNH-Daily-Builds (the downloads site serves no
             # scrapable listing). Pick the variant for the requested Java.

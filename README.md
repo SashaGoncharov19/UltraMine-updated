@@ -75,10 +75,11 @@ coremods built against vanilla's chunk storage cannot apply. `vanilla` gives
 them the live arrays they expect, at the cost of the memory and GC time
 off-heap storage exists to avoid.
 
-The **GT New Horizons** daily server pack boots on this core in `vanilla` mode:
-all 294 mods, nothing excluded, ArchaicFix's Phosphor left enabled, on Java 8.
-CI reproduces it - dispatch the Build workflow with `modpack_url=gtnh-latest`
-and `chunk_storage=vanilla`.
+**GT New Horizons 2.8.4** — the release the download page serves — boots on this
+core in `vanilla` mode: the whole pack, nothing excluded, ArchaicFix's Phosphor
+left enabled, on Java 8. CI reproduces it: dispatch the Build workflow with
+`modpack_url=gtnh-release` and `chunk_storage=vanilla`. `gtnh-latest` runs the
+newest daily build instead, which is a moving target and not the gate.
 
 **Run coremod-heavy packs on Java 8.** The bare server runs on Java 8 through 25
 and both are CI gates, but a pack that ships coremods does not boot on Java 9+
