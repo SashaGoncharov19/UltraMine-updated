@@ -338,6 +338,16 @@ jobs:
           for i in $(seq 1 60); do [ -f exitcode ] && break; sleep 2; done
           [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
           tail -n 60 console.log
+          # Reaching Done is half the job. A server that boots and cannot write its
+          # worlds back is not a pass, and this gate called one green: saveAllWorlds
+          # threw on the first world and left the other sixty dimensions unwritten,
+          # with nothing failing because the boot itself had succeeded.
+          if grep -q 'Exception stopping the server' console.log; then
+            echo '::error::Server booted but failed to save on shutdown'
+            grep -n -A 30 'Exception stopping the server' console.log | head -n 45
+            exit 1
+          fi
+          echo '=== shutdown save clean ==='
 
       - name: Upload console log
         if: always()
