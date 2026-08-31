@@ -9,11 +9,13 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -61,12 +63,65 @@ public class DedicatedServer extends MinecraftServer implements IServer
 	public final List pendingCommandList = Collections.synchronizedList(new ArrayList());
 	private RConThreadQuery theRConThreadQuery;
 	private RConThreadMain theRConThreadMain;
-	private UltramineServerConfig settings;
+	/*
+	 * ultramine: vanilla's PropertyManager, kept under vanilla's field name and
+	 * type. This core configures itself from settings/server.yml and holds that
+	 * in umConfig, but coremods @Shadow this field - ServerUtilities'
+	 * pause-when-empty does - and a @Shadow matches on name AND descriptor. A
+	 * field of a different type is simply not found, the mixin fails to apply,
+	 * and the DedicatedServer class load dies with it.
+	 */
+	private PropertyManager settings;
+	private UltramineServerConfig umConfig;
 	private boolean canSpawnStructures;
 	private WorldSettings.GameType gameType;
 	private boolean guiIsEnabled;
 	public static boolean allowPlayerLogins = false;
 	private static final String __OBFID = "CL_00001784";
+
+	/*
+	 * The file is written first when absent: PropertyManager would otherwise warn
+	 * that it does not exist and generate an empty one, which reads as a fault on
+	 * a server whose configuration lives elsewhere. Seeded from the same vanilla
+	 * keys the IServer property accessors below serve, so a mod reading through
+	 * this field and the core reading through those methods agree.
+	 */
+	private PropertyManager loadVanillaProperties()
+	{
+		File file = getVanillaFile("server.properties");
+
+		if (!file.exists())
+		{
+			try
+			{
+				PrintWriter writer = new PrintWriter(file, "UTF-8");
+
+				try
+				{
+					writer.println("#Minecraft server properties");
+					writer.println("#This server is configured from settings/server.yml. This file is here for");
+					writer.println("#mods that read vanilla server properties directly; the core does not use it.");
+				}
+				finally
+				{
+					writer.close();
+				}
+			}
+			catch (IOException e)
+			{
+				field_155771_h.warn("Could not create " + file + "; mods reading vanilla server properties will see defaults", e);
+			}
+		}
+
+		PropertyManager manager = new PropertyManager(file);
+
+		for (Map.Entry<String, Object> entry : umConfig.vanilla.unresolved.entrySet())
+		{
+			manager.setProperty(entry.getKey(), entry.getValue());
+		}
+
+		return manager;
+	}
 
 	public DedicatedServer(File p_i1508_1_)
 	{
@@ -135,7 +190,8 @@ public class DedicatedServer extends MinecraftServer implements IServer
 		FMLCommonHandler.instance().onServerStart(this);
 
 		field_155771_h.info("Loading properties");
-		settings = ConfigurationHandler.getServerConfig();
+		umConfig = ConfigurationHandler.getServerConfig();
+		settings = loadVanillaProperties();
 		WorldConfig globalWConf = ConfigurationHandler.getWorldsConfig().global;
 
 		if (this.isSinglePlayer())
@@ -144,21 +200,21 @@ public class DedicatedServer extends MinecraftServer implements IServer
 		}
 		else
 		{
-			this.setOnlineMode(settings.settings.authorization.onlineMode);
-			this.setHostname(settings.listen.minecraft.serverIP);
+			this.setOnlineMode(umConfig.settings.authorization.onlineMode);
+			this.setHostname(umConfig.listen.minecraft.serverIP);
 		}
 
 		this.setCanSpawnAnimals(globalWConf.mobSpawn.spawnAnimals);
 		this.setCanSpawnNPCs(globalWConf.mobSpawn.allowNPCs);
 		this.setAllowPvp(globalWConf.settings.pvp);
-		this.setAllowFlight(settings.settings.security.allowFlight);
-		this.func_155759_m(settings.settings.other.resourcePack);
-		this.setMOTD(settings.settings.messages.motd);
-		this.setForceGamemode(settings.settings.player.forceGamemode);
-		this.func_143006_e(settings.settings.player.playerIdleTimeout);
+		this.setAllowFlight(umConfig.settings.security.allowFlight);
+		this.func_155759_m(umConfig.settings.other.resourcePack);
+		this.setMOTD(umConfig.settings.messages.motd);
+		this.setForceGamemode(umConfig.settings.player.forceGamemode);
+		this.func_143006_e(umConfig.settings.player.playerIdleTimeout);
 
 		this.canSpawnStructures = globalWConf.generation.generateStructures;
-		int i = settings.settings.player.gamemode;
+		int i = umConfig.settings.player.gamemode;
 		this.gameType = WorldSettings.getGameTypeById(i);
 		field_155771_h.info("Default game type: " + this.gameType);
 		InetAddress inetaddress = null;
@@ -170,7 +226,7 @@ public class DedicatedServer extends MinecraftServer implements IServer
 
 		if (this.getServerPort() < 0)
 		{
-			this.setServerPort(settings.listen.minecraft.port);
+			this.setServerPort(umConfig.listen.minecraft.port);
 		}
 
 		field_155771_h.info("Generating keypair");
@@ -260,14 +316,14 @@ public class DedicatedServer extends MinecraftServer implements IServer
 		String s3 = String.format("%.3fs", new Object[] {Double.valueOf((double)i1 / 1.0E9D)});
 		field_155771_h.info("Done (" + s3 + ")! For help, type \"help\" or \"?\"");
 
-		if (settings.listen.query.enabled)
+		if (umConfig.listen.query.enabled)
 		{
 			field_155771_h.info("Starting GS4 status listener");
 			this.theRConThreadQuery = new RConThreadQuery(this);
 			this.theRConThreadQuery.startThread();
 		}
 
-		if (settings.listen.rcon.enabled)
+		if (umConfig.listen.rcon.enabled)
 		{
 			field_155771_h.info("Starting remote control listener");
 			this.theRConThreadMain = new RConThreadMain(this);
@@ -294,12 +350,12 @@ public class DedicatedServer extends MinecraftServer implements IServer
 
 	public boolean isHardcore()
 	{
-		return settings.settings.other.hardcore;
+		return umConfig.settings.other.hardcore;
 	}
 	
 	public boolean isSpamLogConsole()
 	{
-		return settings.settings.other.spamLagConsole;
+		return umConfig.settings.other.spamLagConsole;
 	}
 
 	protected void finalTick(CrashReport par1CrashReport) {}
@@ -357,7 +413,7 @@ public class DedicatedServer extends MinecraftServer implements IServer
 
 	public boolean isSnooperEnabled()
 	{
-		return settings.settings.other.snooperEnabled;
+		return umConfig.settings.other.snooperEnabled;
 	}
 
 	public void addPendingCommand(String p_71331_1_, ICommandSender p_71331_2_)
@@ -387,25 +443,25 @@ public class DedicatedServer extends MinecraftServer implements IServer
 	public int getIntProperty(String par1Str, int par2)
 	{
 		logInfo("Attempted to get server config unresolved integer parameter " + par1Str);
-		return settings.vanilla.unresolved.containsKey(par1Str) ? (Integer)settings.vanilla.unresolved.get(par1Str) : par2;
+		return umConfig.vanilla.unresolved.containsKey(par1Str) ? (Integer)umConfig.vanilla.unresolved.get(par1Str) : par2;
 	}
 
 	public String getStringProperty(String par1Str, String par2Str)
 	{
 		logInfo("Attempted to get server config unresolved string parameter " + par1Str);
-		return settings.vanilla.unresolved.containsKey(par1Str) ? (String)settings.vanilla.unresolved.get(par1Str) : par2Str;
+		return umConfig.vanilla.unresolved.containsKey(par1Str) ? (String)umConfig.vanilla.unresolved.get(par1Str) : par2Str;
 	}
 
 	public boolean getBooleanProperty(String par1Str, boolean par2)
 	{
 		logInfo("Attempted to get server config unresolved boolean parameter " + par1Str);
-		return settings.vanilla.unresolved.containsKey(par1Str) ? (Boolean)settings.vanilla.unresolved.get(par1Str) : par2;
+		return umConfig.vanilla.unresolved.containsKey(par1Str) ? (Boolean)umConfig.vanilla.unresolved.get(par1Str) : par2;
 	}
 
 	public void setProperty(String par1Str, Object par2Obj)
 	{
 		logInfo("Attempted to set server config unresolved parameter " + par1Str);
-		settings.vanilla.unresolved.put(par1Str, par2Obj);
+		umConfig.vanilla.unresolved.put(par1Str, par2Obj);
 	}
 
 	public void saveProperties()
@@ -436,7 +492,7 @@ public class DedicatedServer extends MinecraftServer implements IServer
 
 	public boolean isCommandBlockEnabled()
 	{
-		return settings.settings.other.enableCommandBlock;
+		return umConfig.settings.other.enableCommandBlock;
 	}
 
 	public int getSpawnProtectionSize()
@@ -480,7 +536,7 @@ public class DedicatedServer extends MinecraftServer implements IServer
 	public void func_143006_e(int par1)
 	{
 		super.func_143006_e(par1);
-		settings.settings.player.playerIdleTimeout = par1;
+		umConfig.settings.player.playerIdleTimeout = par1;
 		this.saveProperties();
 	}
 
@@ -491,7 +547,7 @@ public class DedicatedServer extends MinecraftServer implements IServer
 
 	public boolean func_147136_ar()
 	{
-		return settings.settings.messages.announcePlayerAchievements;
+		return umConfig.settings.messages.announcePlayerAchievements;
 	}
 
 	protected boolean func_152368_aE() throws IOException
