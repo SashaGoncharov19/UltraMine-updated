@@ -39,7 +39,7 @@ public class RecipeCache
 
 	public @Nullable IRecipe findRecipe(InventoryCrafting inv, World world)
 	{
-		if(!enabled)
+		if(!enabled || !isCacheable(inv))
 			return originalSearch(inv, world);
 		RecipeKey key = new RecipeKeyBuilder(inv).build();
 		if(key.width == 0)
@@ -58,6 +58,44 @@ public class RecipeCache
 		IRecipe recipe = originalSearch(inv, world);
 		addToCache(key, recipe);
 		return recipe;
+	}
+
+	/**
+	 * Whether this grid can be answered from the cache at all.
+	 *
+	 * <p>The key is the item id and damage of each slot and nothing else. For a
+	 * hit that found a recipe that is fine, because the recipe is re-checked with
+	 * {@code matches()} before it is used. For a hit that found <em>nothing</em>
+	 * it is not: that answer is returned as-is, because verifying it would mean
+	 * doing the search the cache exists to avoid. So a negative answer is only
+	 * sound if the key describes everything a recipe could match on - and it does
+	 * not, the moment NBT is involved. Two stacks of the same item and damage
+	 * with different tags share a key, so the first grid that matched no recipe
+	 * would teach the cache that the second matches none either, and tool
+	 * modifiers, filled cells and programmed circuits would quietly stop
+	 * crafting.
+	 *
+	 * <p>A damage value outside 16 bits has the same problem for a different
+	 * reason: the key packs damage and id into one int, so it would alias.
+	 *
+	 * <p>Grids like these fall back to the linear search - which is exactly what
+	 * the server did before this cache existed, so nothing is lost but speed.
+	 */
+	private static boolean isCacheable(InventoryCrafting inv)
+	{
+		for(int i = 0, size = inv.getSizeInventory(); i < size; i++)
+		{
+			ItemStack is = inv.getStackInSlot(i);
+			if(is == null)
+				continue;
+			if(is.hasTagCompound())
+				return false;
+			int damage = is.getItemDamage();
+			if(damage < 0 || damage > 0xFFFF)
+				return false;
+		}
+
+		return true;
 	}
 
 	private void addToCache(RecipeKey key, @Nullable IRecipe recipe)

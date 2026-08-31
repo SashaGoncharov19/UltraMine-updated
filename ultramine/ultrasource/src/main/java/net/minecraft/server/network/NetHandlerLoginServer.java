@@ -123,10 +123,30 @@ public class NetHandlerLoginServer implements INetHandlerLoginServer
 		Validate.validState(p_147232_2_ == EnumConnectionState.PLAY || p_147232_2_ == EnumConnectionState.LOGIN, "Unexpected protocol " + p_147232_2_, new Object[0]);
 	}
 
+	/* ========================================= ULTRAMINE START ======================================*/
+	/** Mojang's own rule for usernames. The login packet only bounds the length,
+	 *  not the content, so in offline mode a client picks its name freely: control
+	 *  characters, spaces and path separators all arrive here and then flow into
+	 *  logs, commands, the player list, database keys and file names. Reject them
+	 *  at the door. Set -Dultramine.login.usernamePattern to override (a server
+	 *  that deliberately allows other names can widen it). */
+	private static final java.util.regex.Pattern USERNAME_PATTERN = java.util.regex.Pattern.compile(
+			System.getProperty("ultramine.login.usernamePattern", "^[a-zA-Z0-9_]{1,16}$"));
+	/* ========================================= ULTRAMINE END ======================================*/
+
 	public void processLoginStart(C00PacketLoginStart p_147316_1_)
 	{
 		Validate.validState(this.field_147328_g == NetHandlerLoginServer.LoginState.HELLO, "Unexpected hello packet", new Object[0]);
 		this.field_147337_i = p_147316_1_.func_149304_c();
+
+		/* ULTRAMINE: refuse malformed usernames before they reach anything else */
+		String username = this.field_147337_i == null ? null : this.field_147337_i.getName();
+		if (username == null || !USERNAME_PATTERN.matcher(username).matches())
+		{
+			logger.warn("{} tried to log in with an invalid username", this.field_147333_a.getSocketAddress());
+			this.func_147322_a("Invalid username");
+			return;
+		}
 
 		if (this.field_147327_f.isServerInOnlineMode() && !this.field_147333_a.isLocalChannel())
 		{

@@ -1,15 +1,23 @@
 apply plugin: 'java'
 
-sourceCompatibility = '1.8'
-targetCompatibility = '1.8'
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(8)
+	}
+	sourceCompatibility = JavaVersion.VERSION_1_8
+	targetCompatibility = JavaVersion.VERSION_1_8
+}
 
 repositories {
 	mavenCentral()
 }
 
 dependencies {
-	compile gradleApi()
-	compile 'org.ow2.asm:asm-debug-all:5.0.3'
-	compile 'commons-io:commons-io:2.4'
-	compile 'net.md-5:SpecialSource:1.7.3'
+	//`compile` was removed in Gradle 7.
+	implementation gradleApi()
+	//The reobfuscation pipeline stays on ASM 5 + SpecialSource on purpose: it is
+	//build-time only, reads Java 8 class files, and is not what the runtime uses.
+	implementation 'org.ow2.asm:asm-debug-all:5.0.3'
+	implementation 'commons-io:commons-io:2.4'
+	implementation 'net.md-5:SpecialSource:1.7.3'
 }

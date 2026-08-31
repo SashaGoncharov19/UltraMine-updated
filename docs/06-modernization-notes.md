@@ -11,7 +11,7 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 | Component | Pinned | Problem | Direction |
 |---|---|---|---|
-| Gradle | 6.0.1 (wrapper) | Won't run on JDK 17/21 (needs JDK 8–13); deprecated APIs used by the build | Upgrade to Gradle 8.x; use Java toolchains (build runs on a modern JDK, compiles with a JDK 8 toolchain) |
+| Gradle | ~~6.0.1~~ **8.14.3** (wrapper) | ~~Won't run on JDK 17/21; deprecated APIs used by the build~~ **done** — build script migrated off the removed `compile`/`runtime` configurations, `classifier`, `destinationDir`, `project.exec` and `buildDir`; the reobfuscation tasks moved from the removed `IncrementalTaskInputs` to `InputChanges`; a Java 8 toolchain is declared | Remaining: move the Gradle daemon itself to JDK 17+ (required by Gradle 9), which the toolchain makes a workflow change rather than a build change |
 | Java target | 8 | Fine for 1.7.10 (mods expect 8); modern JDKs break several core mechanisms (see D) | Keep target 8 short-term; treat "run on 17/21" as a separate project |
 | Forge maven | `http://files.minecraftforge.net/maven` | Dead (HTTP, host retired) | `https://maven.minecraftforge.net` + `https://libraries.minecraft.net`; note `ultramine/libraries/libraries.zip` already contains a Maven-layout mirror of the whole runtime classpath and can serve as a local repo for offline builds |
 | Sonatype snapshots repo | oss.sonatype.org | Being retired | Remove (nothing actually resolves from it) |
@@ -53,7 +53,7 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ### Stage 0 — "make it build again" (small, do first) — **IN PROGRESS**
 1. ~~Fix repository URLs in `build.gradle`~~ **done**: `mavenCentral` + `https://libraries.minecraft.net` + `https://maven.minecraftforge.net`; dead sonatype repo removed. (Verified against Central: SpecialSource 1.7.3 and every Scala/ASM/koloboke/lwjgl/jinput coordinate resolve there; only Mojang-era artifacts — launchwrapper, authlib, realms, lzma, icu4j-core-mojang, paulscode, twitch — come from `libraries.minecraft.net`.)
-2. ~~CI builds~~ **done**: GitHub Actions builds on JDK 8 (Temurin) with the stock Gradle 6.0.1 wrapper, wrapper-jar checksum validation, SHA-256 checksums, and tag-driven releases with signed provenance — see [07-ci-and-releases.md](07-ci-and-releases.md).
+2. ~~CI builds~~ **done**: GitHub Actions builds on JDK 8 (Temurin) with the Gradle 8.14.3 wrapper, wrapper-jar checksum validation, SHA-256 checksums, and tag-driven releases with signed provenance — see [07-ci-and-releases.md](07-ci-and-releases.md).
 3. ~~Runnable distribution~~ **done**: new `serverDist` task zips server jar + `libraries/` + start scripts.
 4. Version source: CI passes `-Poverride_version` (branch: `indev-<sha>`, release: the tag); the git-describe scheme remains for local use.
 5. Remaining: boot-test a built server against a real mod set; optional zero-cost cleanups (rename `SpeicialClassTransformTask` → `SpecialClassTransformTask`, fix `UndoableOnce` statics, implement `CommandRegistry` map-view `remove` — see [05](05-ultramine-packages.md) §18); later, Gradle dependency verification (`gradle/verification-metadata.xml`) to pin dependency checksums.
@@ -72,7 +72,70 @@ The project is a 2016–2017 codebase frozen around Minecraft 1.7.10 / Forge 10.
 
 ### Stage 2 — modern JVM support, target: **Java 25** — **CORE MILESTONE REACHED**
 
-**The server boots to `Done` on Temurin 25 (and still on Java 8) — both are now mandatory CI gates on every build.** Landed beyond the increments below: a launchwrapper `URLClassLoader`-cast workaround (`ModernJavaLaunch` reimplements the tweaker flow for Java 9+, publishing the live `Tweaks` blackboard list FML mutates; Java 8 uses the stock path untouched), `@ObjectHolder` static-final writes via `Unsafe` (the `sun.reflect.ReflectionFactory` path is gone since Java 9), and an ASM 9 strict-descriptor fix in `EventSubscriptionTransformer` (`getObjectType` for internal names — ASM 5 silently tolerated the misuse and every Event subclass transform was failing). Remaining Stage 2 items: FFM backend for the off-heap chunk allocator (before JDK removes Unsafe memory ops), `CoreModManager.handleCascadingTweak`'s parent-loader `addURL` reflection (affects only coremods shipping cascading tweakers), and real modpack testing on 25.
+**The server boots to `Done` on Temurin 25 (and still on Java 8) — both are now mandatory CI gates on every build.** Landed beyond the increments below: a launchwrapper `URLClassLoader`-cast workaround (`ModernJavaLaunch` reimplements the tweaker flow for Java 9+, publishing the live `Tweaks` blackboard list FML mutates; Java 8 uses the stock path untouched), `@ObjectHolder` static-final writes via `Unsafe` (the `sun.reflect.ReflectionFactory` path is gone since Java 9), and an ASM 9 strict-descriptor fix in `EventSubscriptionTransformer` (`getObjectType` for internal names — ASM 5 silently tolerated the misuse and every Event subclass transform was failing). Remaining Stage 2 items: FFM backend for the off-heap chunk allocator (before JDK removes Unsafe memory ops), and coremod-heavy packs on Java 25 - see below.
+#### Coremod-heavy packs on Java 25: where it stands
+
+The bare server boots on Java 25 and is a CI gate. A pack the size of GT New
+Horizons does not, yet. Three core-side defects were found and fixed, and what
+remains is not core-side. Each was diagnosed from a real boot; the modpack job
+takes `modpack_variant` so the pack and the JVM can be varied one at a time,
+which is what separated the two.
+
+Fixed, all of them the same mistake in different places - from Java 9 the
+application class loader is not a `URLClassLoader`, and the 1.7.10 stack assumes
+it is:
+
+1. `IllegalArgumentException: ... AppClassLoader is not an instance of
+   java.net.URLClassLoader`, twenty times over, then `NoClassDefFoundError` on a
+   coremod's own class. FML puts coremod jars on that loader so cascading
+   tweakers can be found, by reflecting `URLClassLoader.addURL`. That loader is
+   still extendable, just not that way: `CoreModManager` now calls
+   `ClassLoaders$AppClassLoader.appendToClassPathForInstrumentation`, the method
+   behind `Instrumentation.appendToSystemClassLoaderSearch`, which puts the jar
+   on the real application class path exactly as Java 8 does. Needs
+   `--add-opens java.base/jdk.internal.loader=ALL-UNNAMED`, which the generated
+   start scripts pass.
+2. `ModernJavaLaunch` read only `java.class.path`, where launchwrapper on Java 8
+   asks the application loader for its URLs - which includes what the jar
+   manifests chain in through `Class-Path`, i.e. `libraries/`. It now reads the
+   same thing.
+3. `UnsupportedOperationException: NestMember requires ASM7`. The core ships ASM
+   9 but five of its own visitors were still built with `Opcodes.ASM5`, and an
+   ASM5 visitor throws rather than reads when it meets a class-file attribute
+   newer than Java 8. One of them, `TerminalTransformer`, sees every class that
+   loads.
+
+What remains is third-party bytecode that Java 8's verifier accepted and modern
+ones reject. Neither is reachable from here:
+
+- **`NestMember requires ASM7` again, after (3).** The visitor that throws now
+  belongs to a mod's own coremod transformer, built against ASM 4 or 5 against
+  the ASM the core provides. Verified: the error survives the core's own fix.
+- **`IncompatibleClassChangeError: Inconsistent constant pool data ... is
+  CONSTANT_MethodRef and should be CONSTANT_InterfaceMethodRef`** on a mod's
+  lambda-carrying interface. Checked against the core's own transformer shapes
+  first, locally and against real class files: both the `ClassVisitor` pipeline
+  (`TerminalTransformer`) and the `ClassNode` pipeline (every other transformer
+  here) round-trip `InterfaceMethodref` and `Handle.isInterface` correctly at
+  ASM5 and ASM9 alike, so the malformed entry comes from a mod's transformer or
+  from the mod jar as shipped.
+
+Both are what GT New Horizons' own modern stack (lwjgl3ify / RetroFuturaBootstrap)
+addresses by replacing launchwrapper and patching mods - a project of its own,
+not a fix to this core. The alternative available here, skipping a mod's
+transformer when it throws, would mean running mods whose transformations
+silently did not apply, which is worse than not starting.
+
+**So: run coremod-heavy packs on Java 8.** The bare server runs on Java 8
+through 25 and both are CI gates.
+
+**Decision: launchwrapper stays.** Going the other way - replacing it, the way
+GTNH's own stack does - would mean owning a class loader and a mod-patching
+layer for a fourteen-year-old ecosystem, and every mod that works today would
+have to be re-proven against it. The core keeps stock launchwrapper and fixes
+what is on its own side of the line; packs that need a modern JVM *and*
+coremods are what GTNH's bootstrap exists for.
+
 Goal set by the maintainer: the server should start and run on **Java 25** (current LTS). Prior art: the GTNewHorizons 1.7.10 stack (lwjgl3ify/RFB) proves 1.7.10 on modern JVMs is possible, but they patch launchwrapper, coremods and many mods. Planned increments, each kept green on Java 8 while it lands:
 1. **ASM 5 → 9.x** — **DONE** (runtime): `asm-debug-all:5.0.3` replaced with `asm`/`asm-tree`/`asm-commons` **9.10.1**; the only removed-API usages (`RemappingClassAdapter`/`RemappingMethodAdapter` in FML's `DeobfuscationTransformer`/`FMLRemappingAdapter`) ported to `ClassRemapper`/`MethodRemapper`. The transform pipeline can now parse modern class files. buildSrc deliberately stays on ASM 5 + SpecialSource 1.7.3 (build-time only, runs on JDK 8 in CI; SpecialSource 1.7.3 itself needs the old ASM API).
 2. **`ServiceDelegateGenerator`** — **landed**: on Java 15+ it now defines service delegates via `MethodHandles.privateLookupIn(...).defineHiddenClass(...)` (resolved reflectively so the Java 8 baseline still compiles/runs; on 8–14 the old `Unsafe.defineAnonymousClass` path is used). Generated class names are normalized into the lookup class's package (a hidden-class requirement). Validated by the Java 25 smoke job.
@@ -140,6 +203,7 @@ dependent mod with it.
 | NBT map allocated in `createMap()` rather than inline in `<init>()` | `ClassCastException: HashMap → Object2ObjectOpenHashMap` on every `ItemStack.copy()` — Hodgepodge rewrites the inline `new HashMap()` and overwrites `copy()` to cast it | allocate inline, vanilla-shaped |
 | `DataWatcher.watchedObjects` as `WatchableObject[32]` | `@Shadow field field_75695_b was not located` (CoreTweaks) → class fails to load | `WatchableObjectMap`: a `Map` outside, id-indexed array inside, grows past 32 |
 | Forge prelude locals dropped from `World.updateEntityWithOptionalForce` | ArchaicFix's LVT capture fails the whole `World` class | locals restored, behaviour unchanged |
+| An extra method-scope local in `EntityTrackerEntry.sendLocationToAllClients` | `InjectionError: LVT ... has incompatible changes` → `NoClassDefFoundError: EntityTrackerEntry` (ArchaicFix) | the local was a copy of a field it already writes; use the field |
 | Every Java-7+ class re-emitted through `COMPUTE_FRAMES` | mod classes fail to link (`GuiContainer` and friends are stripped server-side, so merge types dead-end) | untouched classes pass through byte-identical |
 | log4j upgraded to 2.17.2 while mods target 2.0-beta9 | `NoSuchMethodError` in mod static initializers (GregTech), `NoClassDefFoundError: core/helpers/Loader` (CoFHCore) | call bridge for removed factory signatures + type remap for the moved `core.helpers` package |
 
@@ -147,25 +211,156 @@ Also fixed along the way: launchwrapper's transformer list is now copy-on-write
 (coremods register transformers *during* iteration — a stock CME), and a failed
 launch prints its real stack trace instead of being swallowed by `halt()`.
 
-### Architectural: block-id width and lighting
+### Architectural: block-id width and lighting - resolved by a second storage backend
 
-These two cannot be papered over — they are competing implementations of the
-same subsystem, so one side has to give:
+These two could not be papered over: they are competing implementations of
+the same subsystem, so one side had to give. The answer was to let the
+ecosystem's implementation win where a pack needs it -
+`-Dorg.ultramine.chunk.storage=vanilla` stores a section in vanilla's heap
+arrays, and both mods then apply as they do on stock Forge. **The GT New
+Horizons daily pack boots on this core in that mode** - all 294 mods, nothing
+excluded, Phosphor left on, on Java 8. The original findings are kept below,
+because they are what the mode exists for:
 
 - **Block ids.** `MemSlot` packs a block as 12 bits of id plus 4 of metadata:
   4096 ids, exactly vanilla's ceiling. Modern large packs exceed it — GTNH asks
   for id **10617** — and solve it with **EndlessIDs**/NEID, which `@Shadow` the
   vanilla `blockLSBArray`/`blockMSBArray` arrays and extend them. This core has
-  no such arrays (blocks live off-heap), so EndlessIDs fails to apply, and
-  without it the pack runs out of ids. **GTNH-class packs are therefore out of
-  reach until `MemSlot` itself carries wider ids** — a chunk-format change, and
-  the natural next big step if such packs are a goal.
+  no such arrays in the default mode (blocks live off-heap), so EndlessIDs
+  fails to apply, and without it the pack runs out of ids. In `vanilla`
+  storage mode the arrays are there and live, EndlessIDs applies, and the
+  ceiling becomes whatever it raises it to.
 - **Lighting.** ArchaicFix's Phosphor backport reads, caches and assigns the
   vanilla `NibbleArray` light fields. Chunk light is off-heap here and
   `getSkylightArray()` materializes a copy, so Phosphor cannot work against it:
-  set `B:enablePhosphor=false` in `config/archaicfix.cfg`. The rest of
-  ArchaicFix is fine.
+  set `B:enablePhosphor=false` in `config/archaicfix.cfg`. In `vanilla`
+  storage mode the fields are the section itself and Phosphor runs
+  untouched. The rest of ArchaicFix is fine either way.
 
 Everything else in the pack — 293 of 294 mods including GregTech, Thaumcraft,
 AE2, Railcraft, Forestry and the whole GTNH coremod stack — got through mod
 construction and pre-init on this core.
+
+## H. Plan: running GTNH-class packs (the block-id ceiling)
+
+Section G ends on the finding that blocks the largest packs: `MemSlot` packs a
+block as 12 bits of id (8-bit LSB + 4-bit MSB nibble) plus 4 of metadata — 4096
+ids, vanilla's ceiling — while GT New Horizons asks for id 10617. This section
+is the plan for lifting that, written after tracing how the ecosystem actually
+solves it.
+
+### What the ecosystem does (and why "just widen MemSlot" is the wrong first move)
+
+EndlessIDs does not serialize chunks itself. It registers a `DataManager` with
+**ChunkAPI** (`com.falsepattern.chunk.api`), which owns the extra chunk data end
+to end: NBT persistence, the chunk packets, and the sub-chunk hooks mods read
+through. GTNH ships ChunkAPI as a coremod (`chunkapicore` in the pack's mod
+list), and EndlessIDs is one of its clients.
+
+That reframes the problem. Inventing our own wider-id format would be a format
+no client, no world-editor and no other mod understands — the pack's own client
+would not read our chunks. Compatibility here means *letting the ecosystem's
+mechanism work*, not competing with it. And that mechanism assumes vanilla's
+chunk shape: heap `byte[]`/`NibbleArray` fields it can shadow, extend and
+serialize.
+
+### The approach: a chunk storage mode, chosen at startup
+
+`ExtendedBlockStorage` gains two storage backends behind its existing accessors:
+
+1. **Off-heap (default, today's behaviour)** — one `MemSlot` per section,
+   12-bit ids. Lowest memory and GC pressure; what UltraMine exists for. Packs
+   that fit in 4096 block ids keep exactly what they have now.
+2. **Vanilla-shaped (compatibility)** — the stock `blockLSBArray`,
+   `blockMSBArray`, `blockMetadataArray`, `blocklightArray`, `skylightArray`
+   fields, live and patchable. In this mode ChunkAPI, EndlessIDs, NEID and
+   Phosphor apply exactly as they do on stock Forge, and the id ceiling becomes
+   whatever those mods raise it to.
+
+Everything else UltraMine does — async chunk IO, adaptive chunk streaming,
+incremental saving, the tick regulator, multiworld, permissions, economy, the
+mob-spawn engine, backups — is independent of which backend is in use and keeps
+working in both.
+
+The mode is a startup decision, not a per-chunk one: the backend must be fixed
+before any world loads, and it determines whether the class exposes fields for
+coremods to patch. Selection is explicit configuration, with detection of
+ChunkAPI/EndlessIDs/NEID/Phosphor used to *warn loudly* on a mismatch rather
+than to silently switch — a server that changes storage mode with existing
+worlds needs to know it is doing that.
+
+### Order of work
+
+1. ~~Extend `MemSlotTest` to the target behaviour first, so the change has to
+   turn a red test green rather than being declared correct afterwards.~~ Done:
+   the old `MemSlotTest` is now `MemSlotContractTest`, an abstract contract run
+   against both backends, extended to cover the bulk array paths (chunk save,
+   chunk packet) that the two have to agree on.
+2. ~~Introduce the backend seam.~~ Done: `ChunkStorageMode` picks the backend
+   from `-Dorg.ultramine.chunk.storage`, and `ChunkAllocService` is registered
+   from it. The off-heap path is unchanged and still the default.
+3. ~~Add the vanilla-shaped backend, with the fields present and patchable.~~
+   Done: `HeapMemSlot` stores a section in vanilla's five arrays, and
+   `ExtendedBlockStorage` publishes them as the vanilla-named fields. The
+   arrays *are* the section — a write through one is a write to the world —
+   and replacing one replaces the section, on every path including the raw
+   slot the bulk code reads.
+4. ~~Boot the GTNH pack in compatibility mode in CI and work through whatever
+   the pack then hits.~~ Done. The pack got every one of its 294 mods to
+   Available and then failed loading `EntityTrackerEntry`: ArchaicFix
+   captures that method's locals by position, and the core carried one
+   extra local - a copy of a field it already writes - which shifted every
+   later local by a slot. With that removed the pack reaches `Done`: full
+   mod set, nothing excluded, Phosphor on, Java 8. Reproduce by dispatching
+   `build.yml` with `modpack_url=gtnh-latest` and `chunk_storage=vanilla`.
+5. Only if a wider *off-heap* format still looks worthwhile after that: add a
+   second MSB nibble to `MemSlot` (+2048 bytes per section, ~17% more chunk
+   memory), the matching NBT tag with backward compatibility for chunks that
+   lack it, and the packet format — as a separate, opt-in step, with a
+   documented migration path. Ids that fit today must keep loading unchanged.
+
+### How the two views are kept honest
+
+In compatibility mode a section exists twice over: as the five fields a coremod
+can see and assign, and as the `MemSlot` the core's bulk paths read. They are
+the same arrays, so ordinary reads and writes cannot disagree. The one way they
+could is a coremod assigning a field directly — so `getSlot()`, which every
+bulk path goes through, realigns the slot with the fields first (five reference
+comparisons). A null MSB or sky-light field, which vanilla reads as "all zero",
+zeroes the slot's copy once on that transition rather than on every read.
+
+Two deliberate divergences from vanilla, both in the safe direction: sky light
+is always allocated (the off-heap slot always carries it and the core reads it
+without checking, so a null would be a crash in the Nether rather than a
+saving), and the MSB array is allocated up front instead of on the first block
+above id 255.
+
+### Why the world is 500,000 blocks wide
+
+`ChunkHash` packs a chunk coordinate into 16 bits, so the loaded-chunk map, the
+unload queue and the save queue address chunks in the range -32768..32767 -
+524,288 blocks either side of origin. That is exactly why
+`WorldConstants.MAX_BLOCK_COORD` is 500,000 rather than Minecraft's own
+30,000,000: past the key's range two genuinely different chunks would share one
+key. The two constants are a pair, and `ChunkHashTest` now asserts they stay
+one - the world limit must leave every reachable chunk with a key of its own -
+alongside a test that states the aliasing outright. Raising the world limit
+means widening the key to a `long` everywhere it is used, which is a change of
+its own.
+
+### Open question for step 4
+
+Where a mod widens block storage beyond the arrays — EndlessIDs replaces them
+with a wider representation of its own and serializes it through ChunkAPI — the
+core's raw paths (`ChunkSnapshot`, the chunk packet, `AnvilChunkLoader`) still
+read the 12-bit arrays through `getSlot()`. Whether that matters depends on
+whether such a mod keeps the vanilla arrays as the low bits of the same data or
+abandons them; booting the pack is what answers it, and the fix, if one is
+needed, is to route those paths through `ExtendedBlockStorage`'s accessors,
+which the mod has patched.
+
+### What each step must not break
+
+Existing worlds must load unchanged in the default mode; chunks written in one
+mode must be readable in that mode after a restart; and the Java 8 and Java 25
+smoke tests stay required throughout.

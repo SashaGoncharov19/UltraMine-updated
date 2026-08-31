@@ -22,12 +22,24 @@ on:
         description: 'Modpack boot test: space-separated mod filename globs to remove before booting (e.g. "endlessids*")'
         required: false
         default: ''
+      chunk_storage:
+        description: 'Modpack boot test: chunk storage backend - offheap (default) or vanilla (heap arrays, for coremods that patch chunk storage)'
+        required: false
+        default: 'offheap'
+      modpack_variant:
+        description: 'Modpack boot test: GTNH pack variant to use regardless of modpack_java (server-java8 or server-java17-26). Empty picks by modpack_java.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
+# A push should cancel the previous push's build, but not a modpack boot test:
+# those run for twenty minutes and are dispatched deliberately, so they get a
+# group of their own, per pack variant and storage mode. `inputs` is empty on a
+# push event, which lands every push in the plain CI group.
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.ref }}-${{ inputs.modpack_url && format('modpack-{0}-{1}', inputs.modpack_java, inputs.chunk_storage) || 'ci' }}
   cancel-in-progress: true
 
 jobs:
@@ -70,10 +82,26 @@ jobs:
         id: ver
         run: echo "version=indev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Build jars and server distribution
+      # Unit tests run before anything is packaged: the parts of the core that
+      # can be exercised without a live server (off-heap chunk storage, compat
+      # shims, helpers) must pass on their own before we spend time on a boot.
+      - name: Run unit tests
         working-directory: ultramine/ultrasource
         run: |
           chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace test
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ steps.ver.outputs.version }}
+          path: ultramine/ultrasource/build/reports/tests/test
+          if-no-files-found: ignore
+
+      - name: Build jars and server distribution
+        working-directory: ultramine/ultrasource
+        run: |
           ./gradlew --no-daemon --stacktrace \
             -Poverride_version='${{ steps.ver.outputs.version }}' \
             jar jar_source jar_server jar_client serverDist
@@ -164,7 +192,16 @@ jobs:
             # GTNH publishes daily server packs as GitHub release assets on
             # GTNewHorizons/GTNH-Daily-Builds (the downloads site serves no
             # scrapable listing). Pick the variant for the requested Java.
-            if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then VARIANT=server-java17-26; else VARIANT=server-java8; fi
+            # The pack variant and the JVM are separate choices: the java17-26
+            # pack is built for GTNH's own launchwrapper replacement, so running
+            # the java8 pack on a modern JVM is what tests *this* core rather
+            # than that expectation.
+            VARIANT='${{ inputs.modpack_variant }}'
+            if [ -z "$VARIANT" ]; then
+              if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then VARIANT=server-java17-26; else VARIANT=server-java8; fi
+            fi
+            echo "pack variant: $VARIANT"
+
             # /releases (not /releases/latest) so prerelease-flagged dailies resolve too
             URL=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
               'https://api.github.com/repos/GTNewHorizons/GTNH-Daily-Builds/releases?per_page=10' \
@@ -208,11 +245,18 @@ jobs:
           for d in mods config scripts resources; do
             [ -d "$BASE/$d" ] && cp -r "$BASE/$d" . && echo "copied $d"
           done
+          STORAGE='${{ inputs.chunk_storage }}'
+          STORAGE=${STORAGE:-offheap}
           # ArchaicFix's Phosphor lighting backport rewrites ExtendedBlockStorage
-          # to read and write vanilla's NibbleArray light fields directly. This
-          # core keeps chunk light off-heap and has no such fields, so the two
-          # lighting implementations cannot coexist - turn Phosphor off.
-          if [ -f config/archaicfix.cfg ]; then
+          # to read and write vanilla's NibbleArray light fields directly. Off-heap
+          # there are no such fields and the two lighting implementations cannot
+          # coexist, so Phosphor is turned off; in vanilla storage mode the fields
+          # are there and live, which is exactly what the test is checking - so the
+          # pack's own setting is left alone.
+          if [ "$STORAGE" = vanilla ]; then
+            echo "chunk storage: vanilla heap arrays - leaving the pack's own Phosphor setting alone"
+            grep -n 'enablePhosphor' config/archaicfix.cfg 2>/dev/null || echo 'archaicfix.cfg not shipped by the pack'
+          elif [ -f config/archaicfix.cfg ]; then
             sed -i 's/\(B:enablePhosphor=\)true/\1false/' config/archaicfix.cfg
             echo "archaicfix Phosphor setting: $(grep -n 'enablePhosphor' config/archaicfix.cfg || echo 'key not present')"
           else
@@ -227,14 +271,15 @@ jobs:
           done
           MODERN_FLAGS=""
           if [ "${{ inputs.modpack_java }}" -ge 9 ] 2>/dev/null; then
-            MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED"
+            MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED"
           fi
           if [ "${{ inputs.modpack_java }}" -ge 23 ] 2>/dev/null; then
             MODERN_FLAGS="$MODERN_FLAGS --sun-misc-unsafe-memory-access=allow"
           fi
           echo "Booting $JAR with $(ls mods | wc -l) mod files on $(java -version 2>&1 | head -n 1)"
+          echo "chunk storage mode: $STORAGE"
           mkfifo in
-          (set +e; java -Xms2G -Xmx6G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
+          (set +e; java -Xms2G -Xmx6G $MODERN_FLAGS -Dorg.ultramine.chunk.storage="$STORAGE" -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
           # modded boots are slow - 20 minute budget
@@ -245,6 +290,8 @@ jobs:
           done
           if [ "$booted" != 1 ]; then
             echo '::error::Server failed to boot with the modpack'
+            # Log readers only ever get the tail, so this is ordered worst-last:
+            # the wide context first, the actual cause at the very end.
             # transform-time load failures are logged once and often swallowed
             # by mods; "was not found" lines are expected side-stripped noise
             echo '--- transform-time class load errors (first 8) ---'
@@ -253,7 +300,7 @@ jobs:
             if [ -n "$n" ]; then
               echo "--- context of the first one (console line $n) ---"
               start=$((n>10 ? n-10 : 1))
-              sed -n "${start},$((n+60))p" console.log
+              sed -n "${start},$((n+40))p" console.log
             fi
             # the FIRST initializer failure carries the real cause; the tail
             # usually shows only the secondary "Could not initialize class"
@@ -262,13 +309,20 @@ jobs:
               if [ -n "$n" ]; then
                 echo "--- first '$pat' (console line $n) ---"
                 start=$((n>15 ? n-15 : 1))
-                sed -n "${start},$((n+150))p" console.log
+                sed -n "${start},$((n+80))p" console.log
                 break
               fi
             done
-            echo '--- last 200 console lines ---'
-            tail -n 200 console.log
-            for f in crash-reports/*.txt; do [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }; done
+            echo '--- last 80 console lines ---'
+            tail -n 80 console.log
+            # A GTNH crash report is ~800 lines of mod list with the cause in the
+            # first 60. Print only that, and print it last.
+            for f in crash-reports/*.txt; do
+              [ -f "$f" ] && { echo "=== CAUSE: $f (head) ==="; sed -n '1,70p' "$f"; }
+            done
+            # the exception line itself, last of all, so it survives any truncation
+            echo '=== exception lines in console.log (last 25) ==='
+            grep -nE '^\s*(Caused by:|[a-z]+\.[a-zA-Z0-9_.$]*(Exception|Error)[:\s])' console.log | tail -n 25 || true
             exit 1
           fi
           echo '=== BOOTED with the modpack ==='
@@ -281,7 +335,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: modpack-console-java${{ inputs.modpack_java }}
+          name: modpack-console-java${{ inputs.modpack_java }}-${{ inputs.chunk_storage || 'offheap' }}${{ inputs.modpack_variant && format('-{0}', inputs.modpack_variant) || '' }}
           path: |
             smoke/console.log
             smoke/crash-reports/
@@ -313,7 +367,7 @@ jobs:
           unzip -q ../distributions/*-server-dist.zip
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
-          MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
+          MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
           mkfifo in
           (set +e; java -Xms512M -Xmx2G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in

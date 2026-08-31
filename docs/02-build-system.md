@@ -6,7 +6,7 @@
 ## Toolchain requirements
 
 - **JDK 8** (`sourceCompatibility = targetCompatibility = '1.8'`; the IDEA run config and Start scripts also assume JRE 1.8).
-- **Gradle 6.0.1** via the wrapper (`gradle/wrapper/gradle-wrapper.properties`). Gradle 6 does not run on modern JDKs (17/21), so building currently requires a real JDK 8 install (see [06-modernization-notes.md](06-modernization-notes.md)).
+- **Gradle 8.14.3** via the wrapper (`gradle/wrapper/gradle-wrapper.properties`), with a Java 8 toolchain: the artifacts stay Java 8 bytecode whatever JDK drives the build. Gradle 8 still runs on JDK 8 (Gradle 9 will require JDK 17 to run, which the toolchain already prepares for).
 - **git** on PATH — the version number is computed from `git describe --tags` at configure time.
 - Network access to Maven repos (see below — one of them is dead today).
 

@@ -2,7 +2,6 @@ package net.minecraft.entity;
 
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import net.minecraft.crash.CrashReport;
@@ -48,8 +47,34 @@ public class EntityTracker
 	private final WorldServer theWorld;
 	private Set trackedEntities = new HashSet();
 	private IntHashMap trackedEntityIDs = new IntHashMap();
+	/*
+	 * ultramine: iterating trackedEntities directly is a crash waiting to happen.
+	 * Every loop over it calls into tracker entries, those fire Forge's
+	 * StartTracking / StopTracking events, and a handler that spawns or removes
+	 * an entity reaches straight back into addEntityToTracker - a
+	 * ConcurrentModificationException on the loop that fired the event.
+	 *
+	 * So the loops walk a snapshot instead. It is rebuilt only when the set has
+	 * actually changed, so the usual case costs one field read; the size check
+	 * covers a mod writing to the set directly rather than through this class. An
+	 * entry added mid-loop is picked up on the next pass, which is what every
+	 * caller here already assumes, and one removed mid-loop is a live object
+	 * whose watcher list is already empty.
+	 */
+	private EntityTrackerEntry[] entriesSnapshot = new EntityTrackerEntry[0];
+	private boolean snapshotDirty;
 	private int entityViewDistance;
 	private static final String __OBFID = "CL_00001431";
+
+	private EntityTrackerEntry[] entries()
+	{
+		if(this.snapshotDirty || this.entriesSnapshot.length != this.trackedEntities.size())
+		{
+			this.entriesSnapshot = (EntityTrackerEntry[])this.trackedEntities.toArray(new EntityTrackerEntry[this.trackedEntities.size()]);
+			this.snapshotDirty = false;
+		}
+		return this.entriesSnapshot;
+	}
 
 	public EntityTracker(WorldServer p_i1516_1_)
 	{
@@ -68,12 +93,9 @@ public class EntityTracker
 		{
 			this.addEntityToTracker(p_72786_1_, 512, 1);
 			EntityPlayerMP entityplayermp = (EntityPlayerMP)p_72786_1_;
-			Iterator iterator = this.trackedEntities.iterator();
 
-			while (iterator.hasNext())
+			for (EntityTrackerEntry entitytrackerentry : this.entries())
 			{
-				EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry)iterator.next();
-
 				if (entitytrackerentry.myEntity != entityplayermp)
 				{
 					entitytrackerentry.tryStartWachingThis(entityplayermp);
@@ -199,6 +221,7 @@ public class EntityTracker
 
 			EntityTrackerEntry entitytrackerentry = new EntityTrackerEntry(p_72785_1_, p_72785_2_, p_72785_3_, p_72785_4_);
 			this.trackedEntities.add(entitytrackerentry);
+			this.snapshotDirty = true;
 			this.trackedEntityIDs.addKey(p_72785_1_.getEntityId(), entitytrackerentry);
 			entitytrackerentry.sendEventsToPlayers(this.theWorld.playerEntities);
 		}
@@ -243,11 +266,9 @@ public class EntityTracker
 		if (p_72790_1_ instanceof EntityPlayerMP)
 		{
 			EntityPlayerMP entityplayermp = (EntityPlayerMP)p_72790_1_;
-			Iterator iterator = this.trackedEntities.iterator();
 
-			while (iterator.hasNext())
+			for (EntityTrackerEntry entitytrackerentry : this.entries())
 			{
-				EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry)iterator.next();
 				entitytrackerentry.removeFromWatchingList(entityplayermp);
 			}
 		}
@@ -257,6 +278,7 @@ public class EntityTracker
 		if (entitytrackerentry1 != null)
 		{
 			this.trackedEntities.remove(entitytrackerentry1);
+			this.snapshotDirty = true;
 			entitytrackerentry1.informAllAssociatedPlayersOfItemDestruction();
 		}
 	}
@@ -266,11 +288,9 @@ public class EntityTracker
 		if(theWorld.playerEntities.size() == 0)
 			return;
 		ArrayList arraylist = new ArrayList();
-		Iterator iterator = this.trackedEntities.iterator();
 
-		while (iterator.hasNext())
+		for (EntityTrackerEntry entitytrackerentry : this.entries())
 		{
-			EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry)iterator.next();
 			entitytrackerentry.sendLocationToAllClients(this.theWorld.playerEntities);
 
 			if (entitytrackerentry.playerEntitiesUpdated && entitytrackerentry.myEntity instanceof EntityPlayerMP)
@@ -282,12 +302,9 @@ public class EntityTracker
 		for (int i = 0; i < arraylist.size(); ++i)
 		{
 			EntityPlayerMP entityplayermp = (EntityPlayerMP)arraylist.get(i);
-			Iterator iterator1 = this.trackedEntities.iterator();
 
-			while (iterator1.hasNext())
+			for (EntityTrackerEntry entitytrackerentry1 : this.entries())
 			{
-				EntityTrackerEntry entitytrackerentry1 = (EntityTrackerEntry)iterator1.next();
-
 				if (entitytrackerentry1.myEntity != entityplayermp)
 				{
 					entitytrackerentry1.tryStartWachingThis(entityplayermp);
@@ -318,23 +335,16 @@ public class EntityTracker
 
 	public void removePlayerFromTrackers(EntityPlayerMP p_72787_1_)
 	{
-		Iterator iterator = this.trackedEntities.iterator();
-
-		while (iterator.hasNext())
+		for (EntityTrackerEntry entitytrackerentry : this.entries())
 		{
-			EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry)iterator.next();
 			entitytrackerentry.removePlayerFromTracker(p_72787_1_);
 		}
 	}
 
 	public void func_85172_a(EntityPlayerMP p_85172_1_, Chunk p_85172_2_)
 	{
-		Iterator iterator = this.trackedEntities.iterator();
-
-		while (iterator.hasNext())
+		for (EntityTrackerEntry entitytrackerentry : this.entries())
 		{
-			EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry)iterator.next();
-
 			if (entitytrackerentry.myEntity != p_85172_1_ && entitytrackerentry.myEntity.chunkCoordX == p_85172_2_.xPosition && entitytrackerentry.myEntity.chunkCoordZ == p_85172_2_.zPosition)
 			{
 				entitytrackerentry.tryStartWachingThis(p_85172_1_);
@@ -346,9 +356,8 @@ public class EntityTracker
 	
 	public EntityTrackerEntry findPlayerTracker(EntityPlayerMP player)
 	{
-		for(Object o : trackedEntities)
+		for(EntityTrackerEntry ent : entries())
 		{
-			EntityTrackerEntry ent = (EntityTrackerEntry)o;
 			if(ent.myEntity == player)
 				return ent;
 		}
@@ -361,9 +370,8 @@ public class EntityTracker
 		EntityTrackerEntry playerTracker = findPlayerTracker(player);
 		if(playerTracker != null)
 		{
-			for(Object o : trackedEntities)
+			for(EntityTrackerEntry ent : entries())
 			{
-				EntityTrackerEntry ent = (EntityTrackerEntry)o;
 				if(ent.myEntity.isEntityPlayerMP())
 				{
 					EntityPlayerMP watcher = (EntityPlayerMP)ent.myEntity;
@@ -379,9 +387,8 @@ public class EntityTracker
 		EntityTrackerEntry playerTracker = findPlayerTracker(player);
 		if(playerTracker != null)
 		{
-			for(Object o : trackedEntities)
+			for(EntityTrackerEntry ent : entries())
 			{
-				EntityTrackerEntry ent = (EntityTrackerEntry)o;
 				if(ent.myEntity.isEntityPlayerMP())
 				{
 					EntityPlayerMP watcher = (EntityPlayerMP)ent.myEntity;

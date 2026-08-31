@@ -357,6 +357,14 @@ public abstract class ServerConfigurationManager
 
 	public void playerLoggedOut(EntityPlayerMP p_72367_1_)
 	{
+		/* ULTRAMINE: idempotent - the logout path can be reached twice for one
+		   session (a kicked duplicate login is finished synchronously below, and
+		   the channel's own onDisconnect follows). Writing player data a second
+		   time would overwrite whatever the new session has already saved. */
+		if (!this.playerEntityList.contains(p_72367_1_))
+		{
+			return;
+		}
 		FMLCommonHandler.instance().firePlayerLoggedOut(p_72367_1_);
 		p_72367_1_.triggerAchievement(StatList.leaveGameStat);
 		this.writePlayerData(p_72367_1_);
@@ -436,6 +444,12 @@ public abstract class ServerConfigurationManager
 		{
 			entityplayermp = (EntityPlayerMP)iterator.next();
 			entityplayermp.playerNetServerHandler.kickPlayerFromServer("You logged in from another location");
+			/* ULTRAMINE: the kick only queues a disconnect packet - the old session
+			   stays in the player list until its channel closes a tick or more
+			   later. Until then two sessions share one profile, and both save on
+			   logout: the classic double-login duplication window. Finish the old
+			   session here so its inventory is written before the new one loads. */
+			this.playerLoggedOut(entityplayermp);
 		}
 
 		Object object;

@@ -33,7 +33,7 @@ This is a **distribution repo + full sources**, not a patch-based Forge workspac
         ├── settings.gradle
         ├── buildSrc/             # custom Gradle tasks (reobf, side split, class transform)
         ├── conf/                 # MCP<->SRG<->notch mappings for 1.7.10 (SpecialSource format)
-        ├── gradle/wrapper/       # Gradle 6.0.1 wrapper
+        ├── gradle/wrapper/       # Gradle 8.14.3 wrapper
         ├── .run/                 # IDEA run config ("Run Server", JRE 1.8)
         └── src/
             ├── main/java/
@@ -62,7 +62,7 @@ Unlike stock Forge development (vanilla jar + binary patches applied at install 
 | MCP mappings | 9.05 | `fmlversion.properties`, `mcpmod.info`, `conf/*.srg` |
 | UltraMine core | 0.1.5 (prebuilt jar); source builds derive version from git tags | `build.gradle` `computeVersion()` |
 | Java | 8 (source/target 1.8) | `build.gradle` |
-| Gradle | 6.0.1 (wrapper) | `gradle/wrapper/gradle-wrapper.properties` |
+| Gradle | 8.14.3 (wrapper) | `gradle/wrapper/gradle-wrapper.properties` |
 
 ## Known mod incompatibilities (from README)
 

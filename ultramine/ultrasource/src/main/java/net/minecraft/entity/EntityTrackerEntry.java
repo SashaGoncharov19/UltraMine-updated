@@ -114,7 +114,15 @@ public class EntityTrackerEntry
 
 	public void sendLocationToAllClients(List p_73122_1_)
 	{
-		boolean playerEntitiesUpdated = false;
+		/*
+		 * ultramine: the field, not a local. A local here would sit in slot 2 for
+		 * the whole method and shift every later local down one, and coremods
+		 * capture this method's locals by position - ArchaicFix's injection into
+		 * the teleport branch expects vanilla's exact layout and fails the whole
+		 * class if it does not find it. Behaviour is identical: nothing reads the
+		 * field between here and the branch below.
+		 */
+		this.playerEntitiesUpdated = false;
 
 		if (!this.isDataInitialized || posX != this.myEntity.chunkCoordX || posZ != this.myEntity.chunkCoordZ)
 		{
@@ -122,11 +130,10 @@ public class EntityTrackerEntry
 			this.posY = this.myEntity.posY;
 			this.posZ = this.myEntity.chunkCoordZ;
 			this.isDataInitialized = true;
-			playerEntitiesUpdated = true;
+			this.playerEntitiesUpdated = true;
 //			this.sendEventsToPlayers(p_73122_1_);
 			// Moved below to lastScaled(*)Position be calculated first (fixes bug with invisible players)
 		}
-		this.playerEntitiesUpdated = playerEntitiesUpdated;
 
 		if (this.field_85178_v != this.myEntity.ridingEntity || this.myEntity.ridingEntity != null && this.ticks % 60 == 0)
 		{
@@ -160,11 +167,11 @@ public class EntityTrackerEntry
 
 			this.sendMetadataToAllAssociatedPlayers();
 		}
-		else if(trackingPlayers.size() == 0 && !playerEntitiesUpdated)
+		else if(trackingPlayers.size() == 0 && !this.playerEntitiesUpdated)
 		{
 			// No players - no tracking
 		}
-		else if (this.ticks % this.updateFrequency == 0 || this.myEntity.isAirBorne || this.myEntity.getDataWatcher().hasChanges() || playerEntitiesUpdated)
+		else if (this.ticks % this.updateFrequency == 0 || this.myEntity.isAirBorne || this.myEntity.getDataWatcher().hasChanges() || this.playerEntitiesUpdated)
 		{
 			int i;
 			int j;
