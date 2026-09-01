@@ -1,0 +1,89 @@
+name: Inspect a mod class
+
+# Reads a single class out of a modpack's jar and prints its constant pool.
+#
+# Exists because the interesting questions about coremod compatibility are
+# questions about bytecode as shipped, and the answer is one javap away - but
+# the pack is half a gigabyte and only a runner has the network for it.
+#
+# First use: issue #22, whether tc4tweak ships a malformed method reference or
+# whether some transformer breaks it in flight.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pack_url:
+        description: "Server pack zip to read from"
+        required: true
+        default: "https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.8.4_Server_Java_8.zip"
+      jar_glob:
+        description: "Which jar inside the pack (glob, relative to the pack root)"
+        required: true
+        default: "mods/*tc4tweak*.jar"
+      class_path:
+        description: "Class inside that jar"
+        required: true
+        default: "net/glease/tc4tweak/api/InfusionExtAPI$RecipeNBTBehavior.class"
+      grep:
+        description: "Extra term to pull out of the javap output (optional)"
+        required: false
+        default: "lambda$mergeNBT$1"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: javap
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Fetch the pack and pull out one jar
+        run: |
+          curl -fL --retry 3 -o pack.zip '${{ inputs.pack_url }}'
+          ls -l pack.zip
+          # -j: flatten, so the jar lands here whatever its path inside the pack
+          unzip -j -o pack.zip '${{ inputs.jar_glob }}' -d jar
+          rm -f pack.zip
+          ls -l jar/
+
+      - name: Read the class
+        run: |
+          JAR=$(ls jar/*.jar | head -n 1)
+          [ -n "$JAR" ] || { echo '::error::No jar matched ${{ inputs.jar_glob }}'; exit 1; }
+          echo "jar: $JAR"
+          mkdir -p out
+          unzip -o "$JAR" '${{ inputs.class_path }}' -d out
+          CLASS="out/${{ inputs.class_path }}"
+          [ -f "$CLASS" ] || { echo '::error::Class not present in that jar'; unzip -l "$JAR" | head -40; exit 1; }
+
+          echo '=============== class file, as shipped ==============='
+          javap -v -p "$CLASS" > javap.txt
+          sed -n '1,25p' javap.txt
+
+          echo
+          echo '=============== constant pool ==============='
+          sed -n '/Constant pool:/,/^{/p' javap.txt | head -80
+
+          if [ -n '${{ inputs.grep }}' ]; then
+            echo
+            echo '=============== every mention of ${{ inputs.grep }} ==============='
+            grep -n -- '${{ inputs.grep }}' javap.txt || echo '(not found)'
+          fi
+
+          echo
+          echo '=============== Methodref vs InterfaceMethodref tally ==============='
+          echo "Methodref:          $(grep -c 'Methodref' javap.txt || true)"
+          echo "InterfaceMethodref: $(grep -c 'InterfaceMethodref' javap.txt || true)"
+
+      - name: Upload the full javap output
+        uses: actions/upload-artifact@v4
+        with:
+          name: javap
+          path: javap.txt
