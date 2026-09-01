@@ -62,6 +62,23 @@ jobs:
           distribution: temurin
           java-version: "8"
 
+      # Without a credential the action fails somewhere inside itself, which reads
+      # like a broken workflow rather than a missing setup step. Say it plainly.
+      - name: Check credentials are present
+        env:
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          APIKEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$OAUTH" ] || [ -n "$APIKEY" ]; then
+            echo "Credential present."
+            exit 0
+          fi
+          echo '::error::No Claude credential configured. Add one repository secret:'
+          echo '::error::  CLAUDE_CODE_OAUTH_TOKEN - from `claude setup-token`, bills against the Claude subscription'
+          echo '::error::  ANTHROPIC_API_KEY       - from console.anthropic.com, bills API usage'
+          echo '::error::Settings -> Secrets and variables -> Actions -> New repository secret'
+          exit 1
+
       - name: Work the issue
         uses: anthropics/claude-code-action@v1
         with:
