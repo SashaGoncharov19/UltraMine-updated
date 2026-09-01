@@ -135,7 +135,7 @@ dependencies {
 	compileClient 'org.lwjgl.lwjgl:lwjgl_util:2.9.1'
 	compileClient 'tv.twitch:twitch:5.16'
 
-	compileCommon 'org.yaml:snakeyaml:1.33'
+	compileCommon 'org.yaml:snakeyaml:2.6'
 	compileCommon 'com.lmax:disruptor:3.4.4'
 	compileCommon 'org.apache.commons:commons-dbcp2:2.9.0'
 	compileCommon 'net.openhft:koloboke-api-jdk8:0.6.8'
