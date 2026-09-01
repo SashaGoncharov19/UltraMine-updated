@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.Map.Entry;
 
 import net.minecraft.command.CommandBase;
@@ -329,6 +330,8 @@ public abstract class ServerConfigurationManager
 			}
 		}
 		this.playerEntityList.add(par1EntityPlayerMP);
+		//the session is visible to the duplicate scan from here, so the claim has done its job
+		releaseLoginSlot(par1EntityPlayerMP.getGameProfile());
 		usernameToPlayerMap.put(par1EntityPlayerMP.getGameProfile().getName().toLowerCase(), par1EntityPlayerMP);
 		final WorldServer worldserver = this.mcServer.worldServerForDimension(par1EntityPlayerMP.dimension);
 		
@@ -384,6 +387,41 @@ public abstract class ServerConfigurationManager
 		this.sendPacketToAllPlayers(new S38PacketPlayerListItem(p_72367_1_.getTabListName(), false, 9999));
 	}
 
+	/*
+	 * ultramine: a login is invisible to the duplicate scan in createPlayerForUser
+	 * until playerLoggedIn adds it to playerEntityList - and on a dedicated server
+	 * the player data load in between is asynchronous. A second connection for the
+	 * same account arriving inside that window scans an empty list, kicks nobody,
+	 * and comes up alongside the first. Two live sessions then share one profile
+	 * and both write the same player file on logout, which is the classic
+	 * double-login duplication.
+	 *
+	 * So the profile is claimed for the length of the handshake. Released when the
+	 * player actually joins, and when a login connection drops; a claim that
+	 * escapes both - a load that threw, a thread that died - expires on its own.
+	 * The expiry is only ever read when the same account tries again, so nothing
+	 * has to sweep it.
+	 */
+	/** Long enough for a slow asynchronous player-data load, short enough that a dropped login is not a lockout. */
+	private final LoginClaims loginClaims = new LoginClaims(
+			TimeUnit.MILLISECONDS.toNanos(Long.getLong("ultramine.login.claimTimeoutMs", 60000L)));
+
+	private String claimLoginSlot(GameProfile profile)
+	{
+		return loginClaims.claim(EntityPlayer.func_146094_a(profile))
+				? null
+				: "You are already logging in to this server";
+	}
+
+	/** Called when a login ends, whether it produced a player or not. */
+	public void releaseLoginSlot(GameProfile profile)
+	{
+		if (profile != null)
+		{
+			loginClaims.release(EntityPlayer.func_146094_a(profile));
+		}
+	}
+
 	public String allowUserToConnect(SocketAddress p_148542_1_, GameProfile p_148542_2_)
 	{
 		String s;
@@ -416,9 +454,13 @@ public abstract class ServerConfigurationManager
 
 			return s;
 		}
+		else if (this.playerEntityList.size() >= this.maxPlayers)
+		{
+			return "The server is full!";
+		}
 		else
 		{
-			return this.playerEntityList.size() >= this.maxPlayers ? "The server is full!" : null;
+			return claimLoginSlot(p_148542_2_);
 		}
 	}
 
