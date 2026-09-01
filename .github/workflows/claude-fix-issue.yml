@@ -86,7 +86,10 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           base_branch: dev
           branch_prefix: claude/issue-
-          track_progress: true
+          # Progress-tracking comments need an issue or PR to attach to, so they
+          # are only available on the label path. On a manual dispatch there is no
+          # such context and the action refuses to start at all.
+          track_progress: ${{ github.event_name != 'workflow_dispatch' }}
           additional_permissions: |
             actions: read
           claude_args: |
