@@ -1,0 +1,143 @@
+name: Claude · fix an issue
+
+# Puts Claude on a single issue: it plans in the open, implements on a branch,
+# runs the same gates a person would, and opens a pull request. It never merges -
+# that decision stays with a human, always.
+#
+# Two ways in:
+#   - add the label `claude:fix` to an issue
+#   - run this workflow manually with an issue number
+#
+# Requires one of these repository secrets:
+#   CLAUDE_CODE_OAUTH_TOKEN  (preferred - `claude setup-token` in the CLI)
+#   ANTHROPIC_API_KEY
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to work on"
+        required: true
+        type: string
+      extra:
+        description: "Anything to tell Claude beyond the issue itself (optional)"
+        required: false
+        type: string
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  id-token: write
+
+# One run per issue. A second request waits rather than racing the first over the
+# same branch.
+concurrency:
+  group: claude-fix-${{ inputs.issue || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    name: Plan, implement, open a PR
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'claude:fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      # The build needs a Java 8 toolchain, so give Claude one it can actually run
+      # the gates with. A PR opened without ./gradlew test having passed is worth
+      # less than no PR.
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Work the issue
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base_branch: dev
+          branch_prefix: claude/issue-
+          track_progress: true
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --max-turns 60
+          prompt: |
+            Work issue #${{ inputs.issue || github.event.issue.number }} in this
+            repository, end to end, and open a pull request for it.
+
+            Read CLAUDE.md first. It carries this project's build commands, its CI
+            gates, and the rules that exist because ignoring them produced wrong
+            claims here before. Those rules bind you exactly as they bind a person.
+
+            ${{ inputs.extra }}
+
+            ## Plan before you touch code
+
+            Post a comment on the issue with your plan, before the first edit. It
+            has to be checkable by someone who has not read the code:
+
+            - what you believe the cause is, and the file and line that shows it
+            - what you intend to change, and what you deliberately will not
+            - how you will know it worked - the command, the gate, the log line
+            - what you are unsure about
+
+            If the issue turns out to be wrong, or the cause is somewhere else,
+            say so in that comment and stop. A corrected diagnosis is a good
+            outcome. Guessing to produce a diff is not.
+
+            ## Then implement
+
+            Smallest change that fixes the issue. Do not widen the scope, do not
+            reformat untouched code, do not fix unrelated things you notice - open
+            a new issue for those instead.
+
+            Anything touching a vanilla Minecraft or Forge class goes through the
+            shape rule in CLAUDE.md first. That rule has cost this project more
+            boot failures than anything else.
+
+            ## Verify before you open anything
+
+            Run the real gates, from `ultramine/ultrasource`:
+
+                ./gradlew test
+                ./gradlew jar_server serverDist
+
+            Both must pass. Add a test when the bug is testable - a fix with no
+            test is held in place by nothing. If you cannot verify something, the
+            pull request has to say so plainly rather than implying it was checked.
+
+            The modpack boot test is not available to you here; it is dispatched
+            manually. If your change could affect a modded boot, say so in the PR
+            and name which gate should be run before merge.
+
+            ## The pull request
+
+            English, like everything else in this repository. Title says what
+            changed, not which issue it closes. Body covers:
+
+            - the symptom, and the cause you actually found
+            - what you changed and why that is the right place for it
+            - what you verified, with the output that shows it
+            - what you did not verify, and what remains open
+            - `Fixes #<n>`
+
+            Do not describe the change as more certain than your evidence is.
+
+            ## Where you stop
+
+            Open the pull request and stop. Never merge it, never enable
+            auto-merge, never push to `dev` or `master`. Merging is the
+            maintainer's decision and it is not delegated to you.
