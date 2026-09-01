@@ -67,6 +67,7 @@ import net.minecraft.world.WorldServer;
 import net.minecraft.world.WorldSettings;
 import net.minecraft.world.demo.DemoWorldManager;
 import net.minecraft.world.storage.IPlayerFileData;
+import org.ultramine.server.util.LoginClaims;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -388,19 +389,8 @@ public abstract class ServerConfigurationManager
 	}
 
 	/*
-	 * ultramine: a login is invisible to the duplicate scan in createPlayerForUser
-	 * until playerLoggedIn adds it to playerEntityList - and on a dedicated server
-	 * the player data load in between is asynchronous. A second connection for the
-	 * same account arriving inside that window scans an empty list, kicks nobody,
-	 * and comes up alongside the first. Two live sessions then share one profile
-	 * and both write the same player file on logout, which is the classic
-	 * double-login duplication.
-	 *
-	 * So the profile is claimed for the length of the handshake. Released when the
-	 * player actually joins, and when a login connection drops; a claim that
-	 * escapes both - a load that threw, a thread that died - expires on its own.
-	 * The expiry is only ever read when the same account tries again, so nothing
-	 * has to sweep it.
+	 * ultramine: closes the double-login duplication window - see LoginClaims for
+	 * why the window exists and how the claim behaves.
 	 */
 	/** Long enough for a slow asynchronous player-data load, short enough that a dropped login is not a lockout. */
 	private final LoginClaims loginClaims = new LoginClaims(
