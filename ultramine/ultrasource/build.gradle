@@ -95,6 +95,32 @@ dependencies {
 	compileClient 'com.paulscode:librarylwjglopenal:20100824'
 	compileClient 'com.paulscode:soundsystem:20120107'
 	compileCommon 'io.netty:netty-all:4.0.56.Final'
+
+	/*
+	 * ultramine: JAXB, shipped rather than assumed.
+	 *
+	 * JEP 320 removed the Java EE modules from the JDK in Java 11, and
+	 * `javax.xml.bind` went with them. Mods of this era expect it to be part of
+	 * the platform, so on a modern JVM the pack dies at mod construction with
+	 * `NoClassDefFoundError: javax/xml/bind/JAXBContext` - which is not a mod
+	 * bug and not something an operator can fix from a config file.
+	 *
+	 * Runtime only: nothing in this core compiles against JAXB. The 2.3.3
+	 * generation is deliberate on two counts - it still uses the `javax.xml.bind`
+	 * package names that these mods import (the rename to `jakarta.*` came with
+	 * Jakarta EE 9), and every jar in the closure is a Java 8 class file, so
+	 * shipping them cannot break the Java 8 path. There they are inert anyway:
+	 * the JDK's own copy sits on the boot class path and wins.
+	 *
+	 * The API alone is not enough - `JAXBContext.newInstance` then fails looking
+	 * for an implementation - so the runtime and its activation dependency ship
+	 * with it. txw2, istack-commons-runtime, stax-ex and FastInfoset arrive as
+	 * transitives of jaxb-runtime.
+	 */
+	runtimeCommon 'jakarta.xml.bind:jakarta.xml.bind-api:2.3.3'
+	runtimeCommon 'org.glassfish.jaxb:jaxb-runtime:2.3.3'
+	runtimeCommon 'com.sun.activation:jakarta.activation:1.2.2'
+
 	compileCommon 'com.google.guava:guava:17.0'
 	compileCommon 'org.apache.commons:commons-lang3:3.3.2'
 	compileCommon 'commons-io:commons-io:2.4'
