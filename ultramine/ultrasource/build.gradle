@@ -141,7 +141,7 @@ dependencies {
 	compileCommon 'org.apache.commons:commons-lang3:3.14.0'
 	compileCommon 'commons-io:commons-io:2.4'
 	compileCommon 'commons-codec:commons-codec:1.9'
-	compileClient 'net.java.jinput:jinput:2.0.5'
+	compileClient 'net.java.jinput:jinput:2.0.10'
 	compileClient 'net.java.jutils:jutils:1.0.0'
 	compileCommon 'com.google.code.gson:gson:2.2.4'
 	compileCommon 'com.mojang:authlib:1.5.16'
