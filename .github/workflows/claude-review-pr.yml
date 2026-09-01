@@ -244,8 +244,26 @@ jobs:
 
             ## How to post
 
-            One review, via `gh pr review <n> --comment --body-file <file>`. Use
-            inline comments for specific lines where you can.
+            One review, with the state matching your verdict:
+
+            - `Safe to merge` -> `gh pr review <n> --approve --body-file <file>`
+            - `Merge after fixing the blockers below` or `Do not merge` ->
+              `gh pr review <n> --request-changes --body-file <file>`
+
+            If that call fails - GitHub refuses an approval on a pull request the
+            same account authored, and refuses either state on a closed one -
+            fall back to `gh pr review <n> --comment --body-file <file>` and say
+            at the top of the body which state you intended and why you could not
+            set it. Check the command succeeded; do not assume.
+
+            Approving is not merging. Never merge, and never enable auto-merge.
+            An approval here is advice to the maintainer, and it may be what
+            satisfies a branch protection rule, so give it only when you would
+            defend the change yourself. When you are unsure, request changes and
+            say what would move you - that is a better answer than an approval
+            you are not confident in.
+
+            Use inline comments for specific lines where you can.
 
             Do not invent findings to look useful - a short review saying the
             change is small, correct and well-evidenced is a good review, and
