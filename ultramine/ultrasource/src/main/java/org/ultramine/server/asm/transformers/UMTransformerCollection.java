@@ -10,6 +10,7 @@ public class UMTransformerCollection extends UMTBatchTransformer
 		registerGlobalTransformer(new TrigMathTransformer());
 		registerGlobalTransformer(new ServiceInjectionTransformer());
 		registerGlobalTransformer(new Log4jBeta9CompatTransformer());
+		registerGlobalTransformer(new FieldSetCompatTransformer());
 		//Last of the global passes: it repairs what earlier ones may have
 		//re-emitted, and it is the cheapest to skip - one bitmask test for
 		//every class that is not an interface.

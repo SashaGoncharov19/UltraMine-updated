@@ -337,6 +337,18 @@ jobs:
             # the exception line itself, last of all, so it survives any truncation
             echo '=== exception lines in console.log (last 25) ==='
             grep -nE '^\s*(Caused by:|[a-z]+\.[a-zA-Z0-9_.$]*(Exception|Error)[:\s])' console.log | tail -n 25 || true
+            # A list of exception lines names the failure but not who caused it.
+            # The frames under the last one are what identify the mod, and
+            # chasing them through a downloaded artifact costs a whole round
+            # trip - so print them here.
+            echo
+            echo '=== stack around the fatal exception ==='
+            LAST=$(grep -nE '^\s*(Caused by:|[a-z]+\.[a-zA-Z0-9_.$]*(Exception|Error)[:\s])' console.log \
+              | tail -n 1 | cut -d: -f1)
+            if [ -n "$LAST" ]; then
+              START=$((LAST > 40 ? LAST - 40 : 1))
+              sed -n "${START},$((LAST + 60))p" console.log
+            fi
             exit 1
           fi
           echo '=== BOOTED with the modpack ==='
