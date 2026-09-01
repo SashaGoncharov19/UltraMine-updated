@@ -133,7 +133,7 @@ jobs:
           echo "InterfaceMethodref: $(grep -c '= InterfaceMethodref' javap.txt || true)"
 
       - name: Upload the full javap output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: javap
           path: javap.txt
