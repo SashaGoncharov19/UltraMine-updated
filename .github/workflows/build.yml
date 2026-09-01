@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-report-${{ steps.ver.outputs.version }}
           path: ultramine/ultrasource/build/reports/tests/test
@@ -121,7 +121,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ultramine_core-${{ steps.ver.outputs.version }}
           if-no-files-found: error
@@ -369,7 +369,7 @@ jobs:
 
       - name: Upload console log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: modpack-console-java${{ inputs.modpack_java }}-${{ inputs.chunk_storage || 'offheap' }}${{ inputs.modpack_variant && format('-{0}', inputs.modpack_variant) || '' }}
           path: |
