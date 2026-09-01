@@ -80,6 +80,7 @@ jobs:
           exit 1
 
       - name: Work the issue
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -101,9 +102,6 @@ jobs:
           # A run whose work cannot be inspected is not verifiable, which is the
           # whole point of this workflow.
           show_full_output: true
-        env:
-          # gh is how the plan comment and the pull request get posted.
-          GH_TOKEN: ${{ github.token }}
           prompt: |
             Work issue #${{ inputs.issue || github.event.issue.number }} in this
             repository, end to end, and open a pull request for it.
@@ -173,3 +171,29 @@ jobs:
             Open the pull request and stop. Never merge it, never enable
             auto-merge, never push to `dev` or `master`. Merging is the
             maintainer's decision and it is not delegated to you.
+
+        env:
+          # gh is how the plan comment and the pull request get posted.
+          GH_TOKEN: ${{ github.token }}
+
+      # The first three runs of this workflow reported success having done
+      # nothing at all. The prompt was written under `env:` instead of `with:`,
+      # so the action received no input, logged "No trigger found, skipping
+      # remaining steps", and exited green in under two seconds. A gate that
+      # passes on a run that did no work is worse than no gate, so assert the
+      # action reached a conclusion of its own.
+      - name: Assert the run actually did something
+        if: always() && steps.claude.outcome != 'skipped'
+        env:
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+        run: |
+          if [ "$CONCLUSION" = "success" ]; then
+            echo "Claude ran and finished."
+            exit 0
+          fi
+          echo "::error::Claude did not run. conclusion='${CONCLUSION:-<empty>}'"
+          echo "::error::An empty conclusion means the action skipped itself before"
+          echo "::error::starting - most often a missing or misplaced prompt input."
+          echo "::error::Read the 'Run Claude Code Action' step: 'Context prompt' and"
+          echo "::error::'Trigger result' say which."
+          exit 1
