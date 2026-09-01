@@ -1,0 +1,302 @@
+name: Claude · review a pull request
+
+# A second pair of eyes before merge. It reviews and reports; it never approves
+# and never merges - that decision stays with a person.
+#
+# Three ways in:
+#   - automatically, when a pull request is opened or pushed to
+#   - add the label `claude:review` to a pull request
+#   - run this workflow manually with a pull request number
+#
+# Requires CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in repository secrets.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to review"
+        required: true
+        type: string
+      extra:
+        description: "Anything to tell Claude beyond the diff (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  actions: read
+  id-token: write
+
+# A new push supersedes a review of the old diff rather than queueing behind it.
+concurrency:
+  group: claude-review-${{ inputs.pr || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review the diff
+    # `labeled` fires for every label, so only act on ours; the other event
+    # types are always meant for us.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'claude:review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The reviewer is asked to run the fast gates itself rather than trust the
+      # author's word, so it needs the toolchain the project actually builds on.
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Check credentials are present
+        env:
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          APIKEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$OAUTH" ] || [ -n "$APIKEY" ]; then
+            echo "Credential present."
+            exit 0
+          fi
+          echo '::error::No Claude credential configured. Add one repository secret:'
+          echo '::error::  CLAUDE_CODE_OAUTH_TOKEN - from `claude setup-token`'
+          echo '::error::  ANTHROPIC_API_KEY       - from console.anthropic.com'
+          exit 1
+
+      - name: Note when the run started
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Review
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Progress-tracking comments need an event that carries a PR to attach
+          # to; a manual dispatch has none and the action refuses to start.
+          track_progress: ${{ github.event_name != 'workflow_dispatch' }}
+          additional_permissions: |
+            actions: read
+          claude_args: |
+            --max-turns 150
+            --allowed-tools Bash,Read,Write,Edit,Glob,Grep
+          show_full_output: true
+          # Pull requests opened by the issue workflow are authored by
+          # claude[bot], and the action rejects bot actors unless listed.
+          # Reviewing them is the whole point; it cannot loop, because this
+          # workflow triggers on pull_request events, not on comments.
+          allowed_bots: "claude[bot]"
+          prompt: |
+            Review pull request #${{ inputs.pr || github.event.pull_request.number }}
+            in this repository and post the review. Do not approve it and do not
+            merge it - that decision belongs to a person.
+
+            Read CLAUDE.md first. Its rules exist because ignoring them produced
+            real failures here.
+
+            ${{ inputs.extra }}
+
+            ## Post the review in exactly this shape
+
+            ### Verdict
+            One line: `Safe to merge`, `Merge after fixing the blockers below`, or
+            `Do not merge`. Nothing else on that line.
+
+            ### Risk: N/10
+            One number, then two or three sentences saying what drives it. Use
+            this scale, and say which band you picked and why:
+
+            - **0-1** Docs, comments, CI-only changes that cannot affect a running
+              server.
+            - **2-3** New code in an isolated place, covered by tests, reversible
+              by reverting the commit.
+            - **4-5** Touches shared code or a dependency, but the blast radius is
+              one subsystem and failure would be loud and obvious.
+            - **6-7** Runs on every class load, every tick, or every boot; or
+              changes a mod-facing dependency; or could fail quietly rather than
+              crash.
+            - **8-9** Touches a vanilla class's shape, changes on-disk or wire
+              format, or alters something a coremod patches. A mistake here takes
+              the whole server down at load time, and rolling back does not
+              undo data already written.
+            - **10** All of the above, or the change cannot be reverted safely at
+              all once it has run in production.
+
+            Do not inflate the number to look careful or deflate it to look
+            agreeable. Give the number you would defend to the maintainer after
+            an incident.
+
+            ### What actually changed
+            The mechanism, in your own words, from reading the diff - not the
+            author's summary restated. If the diff does something the description
+            does not mention, that goes here.
+
+            ### What actually improved
+            For each claimed improvement, say whether the diff supports it, and
+            with what evidence. Separate what is *demonstrated* from what is
+            *asserted*. If a change fixes one instance of a class of problem but
+            not the class, say so.
+
+            ### What could go wrong
+            Concrete failure modes, each with the condition that triggers it. Not
+            "this might break things" - which mod, which JVM, which call path,
+            which world state. Rank by likelihood times damage. Include at least
+            one thing you would watch for after merge, or say plainly that you
+            found none.
+
+            ### What I checked and found clean
+            List it. A review that reports only problems leaves the reader unable
+            to tell thoroughness from silence.
+
+            ### What I could not check
+            Say it. "Not verified" is a finished answer, and is worth more than a
+            guess presented as a finding.
+
+            ## What this repository actually breaks on
+
+            Check these before anything a generic reviewer would look for. Each
+            has cost this project a broken modpack.
+
+            1. **Vanilla shape.** This core is Minecraft, Forge and FML compiled
+               as one tree, and coremods patch those classes by name. A renamed
+               field, a retyped field, a removed local, a moved allocation, or one
+               call replaced by a different call in a vanilla class will make some
+               coremod's patch miss - and Mixin fails the whole mixin when a
+               @Shadow or injection point does not resolve, so the class never
+               loads. Name the vanilla shape that was lost.
+            2. **Ordinals.** Coremods @Redirect by ordinal. Reordering calls
+               inside a vanilla method moves them.
+            3. **Added members on vanilla classes.** A new method or field can
+               collide with a coremod injecting the same signature.
+            4. **Java 8 and modern JVMs both.** This core runs on 8 through 25. A
+               new dependency must be Java 8 bytecode - check the class file major
+               version, do not assume. Reflection that strips FINAL or reads
+               Field.modifiers is blocked from Java 12. sun.reflect and the Java EE
+               modules are gone from Java 11. A fix for one must not break the
+               other.
+            5. **Mod-facing library bumps.** guava, commons-lang3, jopt-simple,
+               netty and friends are compiled against by the whole ecosystem. The
+               acceptance gate is the release-pack boot test, not a unit test.
+            6. **Tripwires in public vanilla methods.** Throwing from one on the
+               assumption that only this core calls it has already cost this
+               repository its world saves.
+
+            ## Rules that decide the risk number
+
+            - **Blast radius.** A pass that runs on every class the loader defines
+               is not the same change as a fix in one method, even when the diff is
+               the same size. Say which this is.
+            - **Loud or quiet.** Would a mistake here crash, or silently do
+               nothing? This project has shipped a quiet one: reflection that
+               failed to populate a mod's table left the server running with the
+               feature dead. A quiet failure deserves a higher number than a
+               crash, because nobody finds it.
+            - **Reversibility.** Can this be undone by reverting the commit? If it
+               writes a new on-disk or NBT shape, or migrates data, reverting does
+               not undo what was already written. Say so.
+            - **Cost per invocation.** If it runs per class, per tick, or per
+               chunk, is the added cost bounded and stated? An optimisation
+               without a measurement is not a fix, and a repair pass without a
+               cost estimate is a wager.
+            - **Threading.** Is anything touched from both the tick thread and an
+               IO or async thread? Chunk save, world unload and login all cross
+               that line here.
+            - **Defaults.** Does it change a default an existing server depends
+               on? A behaviour change with no config escape is worse than a bug.
+            - **Diagnosis.** Does the change make the next failure easier or
+               harder to read? Deleting a log line, swallowing an exception, or
+               widening a catch usually makes it harder.
+            - **The test.** Would the added test fail if the fix were reverted? If
+               it would pass either way it is holding nothing in place - say so.
+               A test that runs on the Java 8 toolchain but exercises a Java 9+
+               path is the same failure wearing a disguise.
+            - **Scope.** Does the diff do only what its description claims? An
+               unrelated "while I was here" change hides in the same commit.
+
+            ## Run the fast gates yourself
+
+            From `ultramine/ultrasource`, on the PR's head:
+
+                ./gradlew test
+
+            Do not take the author's word for it. If it fails, that is the
+            finding and the verdict. If you cannot run it, say so rather than
+            implying you did.
+
+            ## Conventions
+
+            English everywhere. No model identifiers in anything committed.
+            Comments explain *why*; deliberate divergences from vanilla are marked
+            `ultramine:`.
+
+            ## How to post
+
+            One review, via `gh pr review <n> --comment --body-file <file>`. Use
+            inline comments for specific lines where you can.
+
+            Do not invent findings to look useful - a short review saying the
+            change is small, correct and well-evidenced is a good review, and
+            `Risk: 1/10` is a real answer. Do not restate the diff back at the
+            author, and do not raise style preferences this repository has not
+            adopted.
+
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # A conclusion of `success` means Claude ran, not that it reviewed
+      # anything - a run on issue #20 finished green having posted nothing at
+      # all. Require the review to actually exist.
+      - name: Assert a review was posted
+        if: always() && steps.claude.outcome != 'skipped'
+        env:
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr || github.event.pull_request.number }}
+          SINCE: ${{ steps.started.outputs.at }}
+        run: |
+          # The action refuses to run on a pull request that edits workflow
+          # files, by design: "Action skipped due to workflow validation error
+          # ... your workflow will begin working once you merge your PR." That
+          # is expected, not a failure, and the first version of this gate
+          # called it one.
+          TOUCHES_WORKFLOWS=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate \
+            --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length')
+          if [ "$CONCLUSION" != "success" ] && [ "${TOUCHES_WORKFLOWS:-0}" -gt 0 ]; then
+            echo "::notice::Not reviewed: this pull request edits workflow files, which"
+            echo "::notice::the action declines to run against. It will be reviewed once"
+            echo "::notice::merged. Review this one by hand."
+            exit 0
+          fi
+
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::Claude did not run. conclusion='${CONCLUSION:-<empty>}'"
+            echo "::error::An empty conclusion means the action skipped itself before"
+            echo "::error::starting - most often a missing or misplaced prompt input."
+            exit 1
+          fi
+
+          REVIEWS=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" --paginate \
+            --jq "[.[] | select(.user.login == \"claude[bot]\") | select(.submitted_at >= \"${SINCE}\")] | length")
+          COMMENTS=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+            --jq "[.[] | select(.user.login == \"claude[bot]\") | select(.created_at >= \"${SINCE}\")] | length")
+          echo "reviews=${REVIEWS:-0} comments=${COMMENTS:-0} since ${SINCE}"
+          if [ $(( ${REVIEWS:-0} + ${COMMENTS:-0} )) -lt 1 ]; then
+            echo "::error::Claude ran but posted no review on #${PR}."
+            echo "::error::Read the 'Review' step output above to see where it stopped;"
+            echo "::error::a run that explores and hits --max-turns looks exactly like this."
+            exit 1
+          fi
+          echo "Review posted."
