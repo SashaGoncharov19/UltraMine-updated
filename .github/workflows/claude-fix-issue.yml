@@ -79,6 +79,10 @@ jobs:
           echo '::error::Settings -> Secrets and variables -> Actions -> New repository secret'
           exit 1
 
+      - name: Note when the run started
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Work the issue
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -97,7 +101,7 @@ jobs:
           # run the build nor use gh - the first attempt finished in 24 seconds
           # having done nothing, and still reported success.
           claude_args: |
-            --max-turns 60
+            --max-turns 150
             --allowed-tools Bash,Read,Write,Edit,Glob,Grep
           # A run whose work cannot be inspected is not verifiable, which is the
           # whole point of this workflow.
@@ -176,24 +180,44 @@ jobs:
           # gh is how the plan comment and the pull request get posted.
           GH_TOKEN: ${{ github.token }}
 
-      # The first three runs of this workflow reported success having done
-      # nothing at all. The prompt was written under `env:` instead of `with:`,
-      # so the action received no input, logged "No trigger found, skipping
-      # remaining steps", and exited green in under two seconds. A gate that
-      # passes on a run that did no work is worse than no gate, so assert the
-      # action reached a conclusion of its own.
+      # Two separate claims, because a green run has twice told us nothing.
+      #
+      # The first three runs reported success having done nothing at all: the
+      # prompt was written under `env:` instead of `with:`, so the action found
+      # no trigger and skipped itself in under two seconds.
+      #
+      # Then a run that genuinely executed still left no comment, no branch and
+      # no pull request - and passed, because the action's own conclusion was
+      # `success`. A conclusion is evidence that Claude ran, not that it did
+      # anything. The prompt requires a plan comment before the first edit, so
+      # the absence of one means the run did not do the job whatever it spent
+      # its turns on.
       - name: Assert the run actually did something
         if: always() && steps.claude.outcome != 'skipped'
         env:
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue || github.event.issue.number }}
+          SINCE: ${{ steps.started.outputs.at }}
         run: |
-          if [ "$CONCLUSION" = "success" ]; then
-            echo "Claude ran and finished."
-            exit 0
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::Claude did not run. conclusion='${CONCLUSION:-<empty>}'"
+            echo "::error::An empty conclusion means the action skipped itself before"
+            echo "::error::starting - most often a missing or misplaced prompt input."
+            echo "::error::Read the 'Run Claude Code Action' step: 'Context prompt' and"
+            echo "::error::'Trigger result' say which."
+            exit 1
           fi
-          echo "::error::Claude did not run. conclusion='${CONCLUSION:-<empty>}'"
-          echo "::error::An empty conclusion means the action skipped itself before"
-          echo "::error::starting - most often a missing or misplaced prompt input."
-          echo "::error::Read the 'Run Claude Code Action' step: 'Context prompt' and"
-          echo "::error::'Trigger result' say which."
-          exit 1
+
+          POSTED=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE}/comments" --paginate \
+            --jq "[.[] | select(.user.login == \"claude[bot]\") | select(.created_at >= \"${SINCE}\")] | length")
+          echo "comments posted by claude[bot] since ${SINCE}: ${POSTED:-0}"
+          if [ "${POSTED:-0}" -lt 1 ]; then
+            echo "::error::Claude ran but left nothing on issue #${ISSUE}."
+            echo "::error::The prompt requires a plan comment before the first edit, so a"
+            echo "::error::run with no comment did not do the job - most often it spent its"
+            echo "::error::turns exploring and hit --max-turns before reporting anything."
+            echo "::error::Read the 'Work the issue' step output above to see where it stopped."
+            exit 1
+          fi
+          echo "Claude ran and reported on the issue."

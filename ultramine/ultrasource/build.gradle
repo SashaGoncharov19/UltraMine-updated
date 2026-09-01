@@ -122,7 +122,23 @@ dependencies {
 	runtimeCommon 'com.sun.activation:jakarta.activation:1.2.2'
 
 	compileCommon 'com.google.guava:guava:17.0'
-	compileCommon 'org.apache.commons:commons-lang3:3.3.2'
+	/*
+	 * ultramine: 3.3.2 knows no Java version past 1.8, so on a modern JVM
+	 * SystemUtils.JAVA_SPECIFICATION_VERSION_AS_ENUM is null and every
+	 * isJavaVersionAtLeast call throws. That is not a mod bug - it killed world
+	 * loading on Java 25 from inside OpenComputers' world-load handler:
+	 *
+	 *   NPE: Cannot invoke "JavaVersion.atLeast(JavaVersion)" because
+	 *     "SystemUtils.JAVA_SPECIFICATION_VERSION_AS_ENUM" is null
+	 *     at SystemUtils.isJavaVersionAtLeast(SystemUtils.java:1413)
+	 *     at li.cil.oc.common.SaveHandler$.onWorldLoad(SaveHandler.scala:227)
+	 *
+	 * 3.14.0 is the conservative choice rather than the newest: it is still Java
+	 * 8 bytecode, keeps binary compatibility within 3.x for mods compiled against
+	 * 3.3.2, and still carries the deprecated org.apache.commons.lang3.text
+	 * package that mods of this era use.
+	 */
+	compileCommon 'org.apache.commons:commons-lang3:3.14.0'
 	compileCommon 'commons-io:commons-io:2.4'
 	compileCommon 'commons-codec:commons-codec:1.9'
 	compileClient 'net.java.jinput:jinput:2.0.5'
