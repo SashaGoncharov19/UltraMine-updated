@@ -45,15 +45,18 @@ jobs:
           java-version: "8"
 
       - name: Fetch the pack and pull out one jar
+        env:
+          PACK_URL: ${{ inputs.pack_url }}
+          JAR_GLOB: ${{ inputs.jar_glob }}
         run: |
-          curl -fL --retry 3 -o pack.zip '${{ inputs.pack_url }}'
+          curl -fL --retry 3 -o pack.zip "$PACK_URL"
           ls -l pack.zip
           # The pack nests its mods directory, so the glob is matched against the
           # whole path rather than anchored at the root. -j flattens the result.
-          if ! unzip -j -o pack.zip '${{ inputs.jar_glob }}' -d jar; then
-            echo '::error::No entry matched ${{ inputs.jar_glob }}'
+          if ! unzip -j -o pack.zip "$JAR_GLOB" -d jar; then
+            echo "::error::No entry matched $JAR_GLOB"
             echo '--- entries whose name resembles it ---'
-            unzip -l pack.zip | grep -iE "$(basename '${{ inputs.jar_glob }}' .jar | tr -d '*')" | head -20 || true
+            unzip -l pack.zip | grep -iF "$(basename "$JAR_GLOB" .jar | tr -d '*')" | head -20 || true
             echo '--- directories one and two levels in ---'
             unzip -l pack.zip | awk '{print $4}' | grep -oE '^[^/]+/([^/]+/)?' | sort -u | head -20
             exit 1
@@ -61,15 +64,29 @@ jobs:
           rm -f pack.zip
           ls -l jar/
 
+      # Every input is read from the environment rather than interpolated into
+      # the script. Inner-class names carry a `$`, and inside a double-quoted
+      # interpolation bash expanded `$RecipeNBTBehavior` to nothing - the step
+      # then looked for the wrong file and reported the class missing when it
+      # was there.
       - name: Read the class
+        env:
+          JAR_GLOB: ${{ inputs.jar_glob }}
+          CLASS_PATH: ${{ inputs.class_path }}
+          GREP_TERM: ${{ inputs.grep }}
         run: |
           JAR=$(ls jar/*.jar | head -n 1)
-          [ -n "$JAR" ] || { echo '::error::No jar matched ${{ inputs.jar_glob }}'; exit 1; }
+          [ -n "$JAR" ] || { echo "::error::No jar matched $JAR_GLOB"; exit 1; }
           echo "jar: $JAR"
           mkdir -p out
-          unzip -o "$JAR" '${{ inputs.class_path }}' -d out
-          CLASS="out/${{ inputs.class_path }}"
-          [ -f "$CLASS" ] || { echo '::error::Class not present in that jar'; unzip -l "$JAR" | head -40; exit 1; }
+          unzip -o "$JAR" "$CLASS_PATH" -d out
+          CLASS="out/$CLASS_PATH"
+          if [ ! -f "$CLASS" ]; then
+            echo "::error::$CLASS_PATH is not in that jar"
+            echo '--- classes in the same package ---'
+            unzip -l "$JAR" | grep -F "$(dirname "$CLASS_PATH")/" | head -40
+            exit 1
+          fi
 
           echo '=============== class file, as shipped ==============='
           javap -v -p "$CLASS" > javap.txt
@@ -79,16 +96,18 @@ jobs:
           echo '=============== constant pool ==============='
           sed -n '/Constant pool:/,/^{/p' javap.txt | head -80
 
-          if [ -n '${{ inputs.grep }}' ]; then
+          if [ -n "$GREP_TERM" ]; then
             echo
-            echo '=============== every mention of ${{ inputs.grep }} ==============='
-            grep -n -- '${{ inputs.grep }}' javap.txt || echo '(not found)'
+            echo "=============== every mention of $GREP_TERM ==============="
+            grep -n -F -- "$GREP_TERM" javap.txt || echo '(not found)'
           fi
 
+          # `Methodref` is a substring of `InterfaceMethodref`, so the tally has
+          # to anchor on the `=` javap puts before the tag or it counts both.
           echo
           echo '=============== Methodref vs InterfaceMethodref tally ==============='
-          echo "Methodref:          $(grep -c 'Methodref' javap.txt || true)"
-          echo "InterfaceMethodref: $(grep -c 'InterfaceMethodref' javap.txt || true)"
+          echo "Methodref:          $(grep -c '= Methodref' javap.txt || true)"
+          echo "InterfaceMethodref: $(grep -c '= InterfaceMethodref' javap.txt || true)"
 
       - name: Upload the full javap output
         uses: actions/upload-artifact@v4
