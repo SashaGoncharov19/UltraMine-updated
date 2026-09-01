@@ -92,8 +92,18 @@ jobs:
           track_progress: ${{ github.event_name != 'workflow_dispatch' }}
           additional_permissions: |
             actions: read
+          # Without an explicit tool list the run has no Bash, so it can neither
+          # run the build nor use gh - the first attempt finished in 24 seconds
+          # having done nothing, and still reported success.
           claude_args: |
             --max-turns 60
+            --allowed-tools Bash,Read,Write,Edit,Glob,Grep
+          # A run whose work cannot be inspected is not verifiable, which is the
+          # whole point of this workflow.
+          show_full_output: true
+        env:
+          # gh is how the plan comment and the pull request get posted.
+          GH_TOKEN: ${{ github.token }}
           prompt: |
             Work issue #${{ inputs.issue || github.event.issue.number }} in this
             repository, end to end, and open a pull request for it.
@@ -106,8 +116,9 @@ jobs:
 
             ## Plan before you touch code
 
-            Post a comment on the issue with your plan, before the first edit. It
-            has to be checkable by someone who has not read the code:
+            Post a comment on the issue with your plan, before the first edit -
+            `gh issue comment <n> --body ...`, and check it succeeded. It has to be
+            checkable by someone who has not read the code:
 
             - what you believe the cause is, and the file and line that shows it
             - what you intend to change, and what you deliberately will not
@@ -145,6 +156,7 @@ jobs:
 
             ## The pull request
 
+            Push your branch and open it with `gh pr create --base dev`.
             English, like everything else in this repository. Title says what
             changed, not which issue it closes. Body covers:
 
