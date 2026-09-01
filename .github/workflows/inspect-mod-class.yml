@@ -17,9 +17,9 @@ on:
         required: true
         default: "https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.8.4_Server_Java_8.zip"
       jar_glob:
-        description: "Which jar inside the pack (glob, matched anywhere in the path)"
+        description: "Which jars to search (glob over the pack; the class decides which one is read)"
         required: true
-        default: "*tc4tweak*.jar"
+        default: "*.jar"
       class_path:
         description: "Class inside that jar"
         required: true
@@ -44,49 +44,60 @@ jobs:
           distribution: temurin
           java-version: "8"
 
-      - name: Fetch the pack and pull out one jar
+      - name: Fetch the pack
         env:
           PACK_URL: ${{ inputs.pack_url }}
-          JAR_GLOB: ${{ inputs.jar_glob }}
         run: |
           curl -fL --retry 3 -o pack.zip "$PACK_URL"
           ls -l pack.zip
-          # The pack nests its mods directory, so the glob is matched against the
-          # whole path rather than anchored at the root. -j flattens the result.
-          if ! unzip -j -o pack.zip "$JAR_GLOB" -d jar; then
-            echo "::error::No entry matched $JAR_GLOB"
-            echo '--- entries whose name resembles it ---'
-            unzip -l pack.zip | grep -iF "$(basename "$JAR_GLOB" .jar | tr -d '*')" | head -20 || true
-            echo '--- directories one and two levels in ---'
-            unzip -l pack.zip | awk '{print $4}' | grep -oE '^[^/]+/([^/]+/)?' | sort -u | head -20
-            exit 1
-          fi
-          rm -f pack.zip
-          ls -l jar/
 
-      # Every input is read from the environment rather than interpolated into
-      # the script. Inner-class names carry a `$`, and inside a double-quoted
-      # interpolation bash expanded `$RecipeNBTBehavior` to nothing - the step
-      # then looked for the wrong file and reported the class missing when it
-      # was there.
-      - name: Read the class
+      # The jar's name is not something we reliably know - a mod's file name
+      # rarely matches its package. The first attempt guessed `*tc4tweak*.jar`
+      # and no entry in the pack carried that string at all. So the class is the
+      # search key, and the jar it lives in is an output rather than an input.
+      - name: Find the jar that contains the class
         env:
           JAR_GLOB: ${{ inputs.jar_glob }}
           CLASS_PATH: ${{ inputs.class_path }}
+        run: |
+          mkdir -p pack
+          unzip -q -o pack.zip "$JAR_GLOB" -d pack
+          rm -f pack.zip
+          COUNT=$(find pack -name '*.jar' | wc -l)
+          echo "jars in pack matching $JAR_GLOB: $COUNT"
+          [ "$COUNT" -gt 0 ] || { echo "::error::No jars matched $JAR_GLOB"; exit 1; }
+
+          : > hits.txt
+          while IFS= read -r j; do
+            if unzip -l "$j" 2>/dev/null | grep -qF "$CLASS_PATH"; then
+              echo "$j" >> hits.txt
+            fi
+          done < <(find pack -name '*.jar')
+
+          if [ ! -s hits.txt ]; then
+            echo "::error::No jar in the pack contains $CLASS_PATH"
+            echo '--- jars whose name resembles the package ---'
+            PKG=$(echo "$CLASS_PATH" | awk -F/ '{print $(NF-2)}')
+            find pack -iname "*${PKG}*" | head -20 || true
+            echo "(searched $COUNT jars)"
+            exit 1
+          fi
+
+          echo '--- jars containing it ---'
+          cat hits.txt
+          head -n 1 hits.txt > jar.txt
+
+      - name: Read the class
+        env:
+          CLASS_PATH: ${{ inputs.class_path }}
           GREP_TERM: ${{ inputs.grep }}
         run: |
-          JAR=$(ls jar/*.jar | head -n 1)
-          [ -n "$JAR" ] || { echo "::error::No jar matched $JAR_GLOB"; exit 1; }
+          JAR=$(cat jar.txt)
           echo "jar: $JAR"
           mkdir -p out
           unzip -o "$JAR" "$CLASS_PATH" -d out
           CLASS="out/$CLASS_PATH"
-          if [ ! -f "$CLASS" ]; then
-            echo "::error::$CLASS_PATH is not in that jar"
-            echo '--- classes in the same package ---'
-            unzip -l "$JAR" | grep -F "$(dirname "$CLASS_PATH")/" | head -40
-            exit 1
-          fi
+          [ -f "$CLASS" ] || { echo "::error::extraction of $CLASS_PATH failed"; exit 1; }
 
           echo '=============== class file, as shipped ==============='
           javap -v -p "$CLASS" > javap.txt
