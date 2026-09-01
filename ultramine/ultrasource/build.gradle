@@ -136,7 +136,7 @@ dependencies {
 	compileClient 'tv.twitch:twitch:5.16'
 
 	compileCommon 'org.yaml:snakeyaml:1.33'
-	compileCommon 'com.lmax:disruptor:3.4.4'
+	compileCommon 'com.lmax:disruptor:4.0.0'
 	compileCommon 'org.apache.commons:commons-dbcp2:2.9.0'
 	compileCommon 'net.openhft:koloboke-api-jdk8:0.6.8'
 	compileServer 'jline:jline:2.13', {transitive = false}
