@@ -3,6 +3,7 @@ package org.ultramine.server.util;
 import org.apache.commons.io.Charsets;
 import org.apache.commons.io.IOUtils;
 import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.Constructor;
 import org.yaml.snakeyaml.introspector.BeanAccess;
@@ -38,14 +39,30 @@ public class YamlConfigProvider
 			}
 		};
 		prorutils.setSkipMissingProperties(true);
-		
-		Constructor constructor = new Constructor();
+
+		// ultramine: SnakeYAML 2.x dropped the no-arg Constructor()/Representer() and
+		// requires LoaderOptions/DumperOptions instead. Every file this provider reads
+		// (server.yml, worlds.yml, itemblocker.yml, warps.yml) is written by an operator
+		// or by this server itself under settings/storage - never parsed from a network
+		// or player-supplied source - so the stock LoaderOptions() is kept rather than
+		// loosened or tightened:
+		//  - its TagInspector (UnTrustedTagInspector) refuses arbitrary Java-object tags,
+		//    which is the CVE-2022-1471 hardening 2.x ships by default; this provider only
+		//    ever needs JavaBean-style construction of the requested root class, so nothing
+		//    here depended on the looser 1.x behaviour.
+		//  - maxAliasesForCollections (50), nestingDepthLimit (50) and codePointLimit
+		//    (3 MiB) are left at their defaults. The largest config this core ships,
+		//    defaultworlds.yml, uses 3 anchors referenced a handful of times each and is a
+		//    few KB, so none of our shipped or generated configs are known to approach
+		//    these limits; raise them explicitly here if a real config ever does.
+		LoaderOptions loaderOptions = new LoaderOptions();
+		Constructor constructor = new Constructor(loaderOptions);
 		constructor.setPropertyUtils(prorutils);
-		
+
 		DumperOptions opts = new DumperOptions();
 		opts.setIndent(4);
-		
-		YAML = new Yaml(constructor, new Representer(), opts);
+
+		YAML = new Yaml(constructor, new Representer(opts), opts);
 	}
 
 	public static <T> T getOrCreateConfig(File configFile, Class<T> clazz)
