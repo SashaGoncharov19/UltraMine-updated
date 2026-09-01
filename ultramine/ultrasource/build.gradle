@@ -118,7 +118,7 @@ dependencies {
 	 * transitives of jaxb-runtime.
 	 */
 	runtimeCommon 'jakarta.xml.bind:jakarta.xml.bind-api:2.3.3'
-	runtimeCommon 'org.glassfish.jaxb:jaxb-runtime:2.3.3'
+	runtimeCommon 'org.glassfish.jaxb:jaxb-runtime:4.0.9'
 	runtimeCommon 'com.sun.activation:jakarta.activation:1.2.2'
 
 	compileCommon 'com.google.guava:guava:17.0'
