@@ -38,11 +38,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Set up JDK 8
+      # JDK 21, deliberately, even though the classes read here are Java 8.
+      # JDK 8's javap would not take the file-path form of the argument and
+      # failed with `class not found` on a file it had just been shown. A modern
+      # javap reads any class version up to its own, and major version 52 is far
+      # below 21 - verified on a class compiled with `--release 8`.
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "8"
+          java-version: "21"
 
       - name: Fetch the pack
         env:
@@ -100,7 +105,14 @@ jobs:
           [ -f "$CLASS" ] || { echo "::error::extraction of $CLASS_PATH failed"; exit 1; }
 
           echo '=============== class file, as shipped ==============='
-          javap -v -p "$CLASS" > javap.txt
+          # Fall back to reading it straight out of the jar by class name if the
+          # file form is rejected, so a javap quirk cannot cost another dispatch.
+          if ! javap -v -p "$CLASS" > javap.txt 2>javap.err; then
+            echo "file form failed: $(cat javap.err)"
+            FQCN=$(echo "${CLASS_PATH%.class}" | tr '/' '.')
+            echo "retrying as: javap -cp \"\$JAR\" '$FQCN'"
+            javap -v -p -cp "$JAR" "$FQCN" > javap.txt
+          fi
           sed -n '1,25p' javap.txt
 
           echo
