@@ -183,7 +183,7 @@ public class EnumHelper
 			try
 			{
 				MethodHandle ctor = implLookup.findConstructor(enumClass, MethodType.methodType(void.class, parameterTypes));
-				return enumClass.cast(ctor.invokeWithArguments(parms));
+				return enumClass.cast(invokeWithExactArgs(ctor, parms));
 			}
 			catch (Exception e)
 			{
@@ -195,6 +195,30 @@ public class EnumHelper
 			}
 		}
 		return enumClass.cast(newInstance.invoke(getConstructorAccessor(enumClass, additionalTypes), new Object[] {parms}));
+	}
+
+	/*
+	 * ultramine: an enum whose constructor ends in a varargs parameter yields a
+	 * varargs-collector handle from findConstructor, and invokeWithArguments then
+	 * reads the argument list as the *spread* form - so the parameter array built
+	 * above, already in exact positional shape, is taken as one more element to
+	 * collect and the cast fails:
+	 *
+	 *   ClassCastException: Cannot cast [Ljava.lang.Class; to java.lang.Class
+	 *     at MethodHandleImpl$AsVarargsCollector.invokeWithArguments
+	 *     at EnumHelper.makeEnum
+	 *
+	 * asFixedArity says what is actually meant: these arguments are the declared
+	 * parameters, one for one. It is a no-op on a handle that is not a collector.
+	 *
+	 * Only Java 9+ reaches this at all - setup() prefers sun.reflect.
+	 * ReflectionFactory, whose ConstructorAccessor takes exact positional
+	 * arguments and never had the problem - which is why a pack could add
+	 * varargs enum values happily on Java 8 and die on a modern JVM.
+	 */
+	static Object invokeWithExactArgs(MethodHandle ctor, Object[] parms) throws Throwable
+	{
+		return ctor.asFixedArity().invokeWithArguments(parms);
 	}
 
 	private static Unsafe getUnsafe() throws Exception
