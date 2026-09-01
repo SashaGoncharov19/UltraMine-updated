@@ -17,9 +17,9 @@ on:
         required: true
         default: "https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.8.4_Server_Java_8.zip"
       jar_glob:
-        description: "Which jar inside the pack (glob, relative to the pack root)"
+        description: "Which jar inside the pack (glob, matched anywhere in the path)"
         required: true
-        default: "mods/*tc4tweak*.jar"
+        default: "*tc4tweak*.jar"
       class_path:
         description: "Class inside that jar"
         required: true
@@ -48,8 +48,16 @@ jobs:
         run: |
           curl -fL --retry 3 -o pack.zip '${{ inputs.pack_url }}'
           ls -l pack.zip
-          # -j: flatten, so the jar lands here whatever its path inside the pack
-          unzip -j -o pack.zip '${{ inputs.jar_glob }}' -d jar
+          # The pack nests its mods directory, so the glob is matched against the
+          # whole path rather than anchored at the root. -j flattens the result.
+          if ! unzip -j -o pack.zip '${{ inputs.jar_glob }}' -d jar; then
+            echo '::error::No entry matched ${{ inputs.jar_glob }}'
+            echo '--- entries whose name resembles it ---'
+            unzip -l pack.zip | grep -iE "$(basename '${{ inputs.jar_glob }}' .jar | tr -d '*')" | head -20 || true
+            echo '--- directories one and two levels in ---'
+            unzip -l pack.zip | awk '{print $4}' | grep -oE '^[^/]+/([^/]+/)?' | sort -u | head -20
+            exit 1
+          fi
           rm -f pack.zip
           ls -l jar/
 
