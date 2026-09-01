@@ -184,6 +184,35 @@ task processClientResources(type: ProcessResources) {
 	exclude 'org/ultramine/defaults'
 }
 
+/*
+ * ultramine: this is a Java-8-era codebase - launchwrapper, FML and Mixin all
+ * reach into JDK internals by reflection, and on Java 9+ that needs --add-opens.
+ * Requiring it on the command line is a poor deal for an operator running the
+ * jar from a hosting panel, where there is often nowhere obvious to put JVM
+ * flags: without it, every coremod that ships a cascading tweaker fails to
+ * load, and the pack comes up silently gutted.
+ *
+ * The Add-Opens manifest attribute grants exactly these opens to the unnamed
+ * module when the jar is launched with -jar, so `java -jar <server>.jar` is
+ * enough on its own. Java 8 ignores the attribute, which is what we want there.
+ */
+ext.openedJdkPackages = [
+	'java.base/java.lang',
+	'java.base/java.lang.invoke',
+	'java.base/java.lang.reflect',
+	'java.base/java.io',
+	'java.base/java.net',
+	'java.base/java.nio',
+	'java.base/java.util',
+	'java.base/java.util.jar',
+	'java.base/java.util.zip',
+	'java.base/java.util.concurrent',
+	'java.base/java.util.concurrent.atomic',
+	'java.base/java.text',
+	'java.base/sun.nio.ch',
+	'java.base/jdk.internal.loader'
+]
+
 task jar_server(type: Jar) {
 	dependsOn(tasks.sidesplit, tasks.processServerResources)
 	from fileTree(tasks.sidesplit.getServerClasses()), tasks.processServerResources
@@ -192,6 +221,7 @@ task jar_server(type: Jar) {
 		attributes(
 			'Main-Class': 'cpw.mods.fml.relauncher.ServerLaunchWrapper',
 			'TweakClass': 'cpw.mods.fml.common.launcher.FMLTweaker',
+			'Add-Opens': openedJdkPackages.join(' '),
 			'Class-Path': configurations.packageServer.collect { 'libraries/' + it.getName() }.join(' ')
 		)
 	}
@@ -293,10 +323,15 @@ task dumpServerLibs(type: Copy) {
 task generateStartScripts {
 	ext.outDir = layout.buildDirectory.dir('server_dist_scripts').get().asFile
 	inputs.property('jarName', { tasks.jar_server.archiveFileName.get() })
+	inputs.property('opens', openedJdkPackages)
 	outputs.dir outDir
 	doLast {
 		outDir.mkdirs()
 		String jarName = tasks.jar_server.archiveFileName.get()
+		//Same list the jar manifest carries, so the two can never drift apart.
+		//Redundant for a -jar launch, which the manifest already covers; kept
+		//so the script still works if someone launches with -cp instead.
+		String addOpensFlags = openedJdkPackages.collect { '--add-opens ' + it + '=ALL-UNNAMED' }.join(' ')
 		String jvmArgs = '-server -XX:+UseG1GC -XX:+UseStringDeduplication -Xms2G -Xmx4G'
 		String sh = '#!/bin/sh\n' +
 			'JVM_ARGS="' + jvmArgs + '"\n' +
@@ -305,7 +340,7 @@ task generateStartScripts {
 			'JAVA_MAJOR=$(java -version 2>&1 | sed -n \'s/.*version "\\([0-9]*\\).*/\\1/p\' | head -n 1)\n' +
 			'[ "$JAVA_MAJOR" = "1" ] && JAVA_MAJOR=8\n' +
 			'if [ "${JAVA_MAJOR:-8}" -ge 9 ] 2>/dev/null; then\n' +
-			'  JVM_ARGS="$JVM_ARGS --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED"\n' +
+			'  JVM_ARGS="$JVM_ARGS ' + addOpensFlags + '"\n' +
 			'fi\n' +
 			'if [ "${JAVA_MAJOR:-8}" -ge 23 ] 2>/dev/null; then\n' +
 			'  JVM_ARGS="$JVM_ARGS --sun-misc-unsafe-memory-access=allow"\n' +
@@ -314,7 +349,9 @@ task generateStartScripts {
 			'exec java $JVM_ARGS -jar ' + jarName + ' "$@"\n'
 		new File(outDir, 'start.sh').setText(sh, 'UTF-8')
 		String cmd = '@echo off\r\n' +
-			'rem On Java 9+ add the --add-opens flags from start.sh to MODERN_JAVA_FLAGS\r\n' +
+			'rem The jar manifest opens the JDK internals this server needs, so no\r\n' +
+			'rem --add-opens flags are required here. On Java 23+ add\r\n' +
+			'rem --sun-misc-unsafe-memory-access=allow to silence the off-heap warning.\r\n' +
 			'set MODERN_JAVA_FLAGS=\r\n' +
 			'java ' + jvmArgs + ' %MODERN_JAVA_FLAGS% -jar ' + jarName + '\r\n' +
 			'pause\r\n'

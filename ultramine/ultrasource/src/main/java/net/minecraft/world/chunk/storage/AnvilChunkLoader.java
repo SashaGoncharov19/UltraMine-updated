@@ -16,6 +16,8 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityList;
 import net.minecraft.nbt.CompressedStreamTools;
 import net.minecraft.nbt.EbsSaveFakeNbt;
+import net.minecraft.world.chunk.NibbleArray;
+import org.ultramine.server.chunk.alloc.ChunkStorageMode;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
@@ -331,6 +333,9 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 //		}
 	}
 
+	/** fixed for the life of the JVM, so the branches below fold away at JIT time */
+	private static final boolean VANILLA_SHAPED = ChunkStorageMode.isVanillaShaped();
+
 	protected void writeChunkToNBT(Chunk par1Chunk, World par2World, NBTTagCompound par3NBTTagCompound)
 	{
 		par3NBTTagCompound.setByte("V", (byte)1);
@@ -354,28 +359,49 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 
 			if (extendedblockstorage != null)
 			{
-//				nbttagcompound1 = new NBTTagCompound();
-//				nbttagcompound1.setByte("Y", (byte)(extendedblockstorage.getYLocation() >> 4 & 255));
-//				nbttagcompound1.setByteArray("Blocks", extendedblockstorage.getSlot().copyLSB());
-//
-//				if (true/*extendedblockstorage.getBlockMSBArray() != null*/)
-//				{
-//					nbttagcompound1.setByteArray("Add", extendedblockstorage.getSlot().copyMSB());
-//				}
-//
-//				nbttagcompound1.setByteArray("Data", extendedblockstorage.getSlot().copyBlockMetadata());
-//				nbttagcompound1.setByteArray("BlockLight", extendedblockstorage.getSlot().copyBlocklight());
-//
-//				if (flag)
-//				{
-//					nbttagcompound1.setByteArray("SkyLight", extendedblockstorage.getSlot().copySkylight());
-//				}
-//				else
-//				{
-//					nbttagcompound1.setByteArray("SkyLight", new byte[2048]);
-//				}
+				/*
+				 * ultramine: NEID stores 16-bit block ids by redirecting the first and
+				 * third setByteArray call in this method and writing its own keys
+				 * instead, capturing this section as local ordinal 0. Deferring the
+				 * whole section to EbsSaveFakeNbt left it nothing to redirect, so the
+				 * mixin failed and AnvilChunkLoader never loaded - no chunk could be
+				 * saved or read at all.
+				 *
+				 * The vanilla writes come back in vanilla storage mode. The arrays are
+				 * copied out rather than handed over live: this NBT tree is written on
+				 * an IO thread, and a section that keeps ticking while it is being
+				 * serialized would tear. That is the same snapshot EbsSaveFakeNbt takes
+				 * with copy(), so it costs what the off-heap path already costs.
+				 */
+				if (VANILLA_SHAPED)
+				{
+					nbttagcompound1 = new NBTTagCompound();
+					nbttagcompound1.setByte("Y", (byte)(extendedblockstorage.getYLocation() >> 4 & 255));
+					nbttagcompound1.setByteArray("Blocks", extendedblockstorage.getBlockLSBArray().clone());
 
-				nbttaglist.appendTag(new EbsSaveFakeNbt(extendedblockstorage.copy(), !flag));
+					if (extendedblockstorage.getBlockMSBArray() != null)
+					{
+						nbttagcompound1.setByteArray("Add", extendedblockstorage.getBlockMSBArray().data.clone());
+					}
+
+					nbttagcompound1.setByteArray("Data", extendedblockstorage.getMetadataArray().data.clone());
+					nbttagcompound1.setByteArray("BlockLight", extendedblockstorage.getBlocklightArray().data.clone());
+
+					if (flag)
+					{
+						nbttagcompound1.setByteArray("SkyLight", extendedblockstorage.getSkylightArray().data.clone());
+					}
+					else
+					{
+						nbttagcompound1.setByteArray("SkyLight", new byte[2048]);
+					}
+
+					nbttaglist.appendTag(nbttagcompound1);
+				}
+				else
+				{
+					nbttaglist.appendTag(new EbsSaveFakeNbt(extendedblockstorage.copy(), !flag));
+				}
 			}
 		}
 
@@ -483,32 +509,55 @@ public class AnvilChunkLoader implements IChunkLoader, IThreadedFileIO
 			}
 			byte b1 = nbttagcompound1.getByte("Y");
 			ExtendedBlockStorage extendedblockstorage = new ExtendedBlockStorage(b1 << 4, flag, false);
-			byte[] lsb = nbttagcompound1.getByteArray("Blocks");
-			byte[] msb;
 
-			if (nbttagcompound1.hasKey("Add", 7))
+			//NEID redirects setBlockLSBArray and setBlockMetadataArray here to read its
+			//own wider keys; the single-shot slot load below offered neither of them.
+			if (VANILLA_SHAPED)
 			{
-				msb = nbttagcompound1.getByteArray("Add");
+				extendedblockstorage.setBlockLSBArray(nbttagcompound1.getByteArray("Blocks"));
+
+				if (nbttagcompound1.hasKey("Add", 7))
+				{
+					extendedblockstorage.setBlockMSBArray(new NibbleArray(nbttagcompound1.getByteArray("Add"), 4));
+				}
+
+				extendedblockstorage.setBlockMetadataArray(new NibbleArray(nbttagcompound1.getByteArray("Data"), 4));
+				extendedblockstorage.setBlocklightArray(new NibbleArray(nbttagcompound1.getByteArray("BlockLight"), 4));
+
+				if (flag)
+				{
+					extendedblockstorage.setSkylightArray(new NibbleArray(nbttagcompound1.getByteArray("SkyLight"), 4));
+				}
 			}
 			else
 			{
-				msb = null;
-			}
+				byte[] lsb = nbttagcompound1.getByteArray("Blocks");
+				byte[] msb;
 
-			byte[] meta = nbttagcompound1.getByteArray("Data");
-			byte[] blockLight = nbttagcompound1.getByteArray("BlockLight");
-			byte[] skyLight;
+				if (nbttagcompound1.hasKey("Add", 7))
+				{
+					msb = nbttagcompound1.getByteArray("Add");
+				}
+				else
+				{
+					msb = null;
+				}
 
-			if (flag)
-			{
-				skyLight = nbttagcompound1.getByteArray("SkyLight");
-			}
-			else
-			{
-				skyLight = null;
-			}
+				byte[] meta = nbttagcompound1.getByteArray("Data");
+				byte[] blockLight = nbttagcompound1.getByteArray("BlockLight");
+				byte[] skyLight;
 
-			extendedblockstorage.getSlot().setData(lsb, msb, meta, blockLight, skyLight);
+				if (flag)
+				{
+					skyLight = nbttagcompound1.getByteArray("SkyLight");
+				}
+				else
+				{
+					skyLight = null;
+				}
+
+				extendedblockstorage.getSlot().setData(lsb, msb, meta, blockLight, skyLight);
+			}
 
 			extendedblockstorage.removeInvalidBlocks();
 			aextendedblockstorage[b1] = extendedblockstorage;

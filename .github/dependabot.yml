@@ -1,0 +1,60 @@
+version: 2
+
+# Detection is the point here, not automatic upgrades. Most of this dependency
+# tree is pinned by what the 1.7.10 mod ecosystem compiles against, so a green
+# "bump everything" strategy would break modpacks - see issue #12. What this file
+# buys is a PR the moment something we ship gains an advisory or a fix.
+#
+# Note: security alerts come from the repository's own security settings
+# (Dependabot alerts + security updates), not from this file. The ignore rules
+# below suppress routine version-bump noise on things we deliberately hold back;
+# they are not a reason to skip enabling alerts.
+
+updates:
+  # Actions drift silently and are cheap to keep current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: gradle
+    directory: "/ultramine/ultrasource"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: "deps"
+    labels: ["dependencies"]
+    groups:
+      # One PR for the libraries that only this core uses, so the boot test runs
+      # once instead of eight times over changes that travel together.
+      core-internal:
+        patterns:
+          - "org.apache.commons:*"
+          - "commons-io:commons-io"
+          - "commons-codec:commons-codec"
+          - "org.apache.httpcomponents:*"
+    ignore:
+      # Locked by Minecraft 1.7.10 itself. A newer version is not an upgrade,
+      # it is a different game.
+      - dependency-name: "org.scala-lang*"
+      - dependency-name: "org.scala-lang.plugins:*"
+      - dependency-name: "org.lwjgl.lwjgl:*"
+      - dependency-name: "com.mojang:*"
+      - dependency-name: "net.minecraft:launchwrapper"
+      - dependency-name: "com.paulscode:*"
+      - dependency-name: "java3d:vecmath"
+      - dependency-name: "tv.twitch:twitch"
+      - dependency-name: "com.ibm.icu:icu4j-core-mojang"
+      - dependency-name: "lzma:lzma"
+      # Part of the mod contract: mods are compiled against these exact versions
+      # and break at link time if they move. Bumping either needs the call-site
+      # inventory described in #12, not a Dependabot PR.
+      - dependency-name: "com.google.guava:guava"
+      - dependency-name: "net.sf.jopt-simple:jopt-simple"

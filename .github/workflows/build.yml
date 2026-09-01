@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
       modpack_url:
-        description: 'Modpack boot test: server pack zip URL, or "gtnh-latest" for the newest GTNH daily server pack (variant picked by modpack_java)'
+        description: 'Modpack boot test: server pack zip URL, "gtnh-release" for the pinned GTNH release pack (what the download page serves), or "gtnh-latest" for the newest daily build (a moving target - variant picked by modpack_java)'
         required: false
         default: ''
       modpack_java:
@@ -144,7 +144,10 @@ jobs:
           exec 9>in
           booted=0
           for i in $(seq 1 90); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 2
           done
@@ -188,7 +191,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           URL='${{ inputs.modpack_url }}'
-          if [ "$URL" = "gtnh-latest" ]; then
+          # The pinned regression target: the pack the download page actually
+          # hands out. A gate whose subject moves cannot tell "we broke it" from
+          # "they changed it", so this one is pinned and bumped deliberately when
+          # GTNH cuts a release. Verified booting on this core since c4beaef.
+          GTNH_RELEASE='https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.8.4_Server_Java_8.zip'
+          if [ "$URL" = "gtnh-release" ]; then
+            URL="$GTNH_RELEASE"
+            echo "pinned GTNH release pack"
+          elif [ "$URL" = "gtnh-latest" ]; then
             # GTNH publishes daily server packs as GitHub release assets on
             # GTNewHorizons/GTNH-Daily-Builds (the downloads site serves no
             # scrapable listing). Pick the variant for the requested Java.
@@ -284,7 +295,10 @@ jobs:
           booted=0
           # modded boots are slow - 20 minute budget
           for i in $(seq 1 240); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 5
           done
@@ -330,6 +344,16 @@ jobs:
           for i in $(seq 1 60); do [ -f exitcode ] && break; sleep 2; done
           [ -f exitcode ] || { echo '::warning::Server did not stop within 2 min, killing'; pkill -9 -f "$JAR" || true; }
           tail -n 60 console.log
+          # Reaching Done is half the job. A server that boots and cannot write its
+          # worlds back is not a pass, and this gate called one green: saveAllWorlds
+          # threw on the first world and left the other sixty dimensions unwritten,
+          # with nothing failing because the boot itself had succeeded.
+          if grep -q 'Exception stopping the server' console.log; then
+            echo '::error::Server booted but failed to save on shutdown'
+            grep -n -A 30 'Exception stopping the server' console.log | head -n 45
+            exit 1
+          fi
+          echo '=== shutdown save clean ==='
 
       - name: Upload console log
         if: always()
@@ -367,13 +391,38 @@ jobs:
           unzip -q ../distributions/*-server-dist.zip
           JAR=$(ls ultramine_core-*-server.jar)
           echo "Booting $JAR on $(java -version 2>&1 | head -1)"
-          MODERN_FLAGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED --add-opens java.base/java.util.zip=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.text=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/jdk.internal.loader=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
+          # The jar manifest carries Add-Opens, so no --add-opens flags here:
+          # booting without them is what proves the attribute is doing its job,
+          # which is the only thing an operator on a hosting panel can rely on.
+          # Assert it is present and complete first, so a dropped attribute
+          # fails as itself rather than as a mystery boot failure.
+          echo '--- manifest Add-Opens ---'
+          # Manifest values wrap at 72 bytes with a leading space on the
+          # continuation, so join those lines back up before reading the value.
+          unzip -p "$JAR" META-INF/MANIFEST.MF | tr -d '\r' \
+            | sed -e ':a' -e 'N;$!ba' -e 's/\n //g' \
+            | grep '^Add-Opens:' | cut -d' ' -f2- \
+            | tr ' ' '\n' | sed '/^$/d' | sort > /tmp/got.txt
+          printf '%s\n' java.base/java.lang java.base/java.lang.invoke java.base/java.lang.reflect \
+            java.base/java.io java.base/java.net java.base/java.nio java.base/java.util \
+            java.base/java.util.jar java.base/java.util.zip java.base/java.util.concurrent \
+            java.base/java.util.concurrent.atomic java.base/java.text java.base/sun.nio.ch \
+            java.base/jdk.internal.loader | sort > /tmp/want.txt
+          if ! diff -u /tmp/want.txt /tmp/got.txt; then
+            echo '::error::Server jar manifest is missing Add-Opens entries'
+            exit 1
+          fi
+          echo "all $(wc -l < /tmp/want.txt) packages present"
+          MODERN_FLAGS="--sun-misc-unsafe-memory-access=allow"
           mkfifo in
           (set +e; java -Xms512M -Xmx2G $MODERN_FLAGS -jar "$JAR" nogui < in > console.log 2>&1; echo $? > exitcode) &
           exec 9>in
           booted=0
           for i in $(seq 1 90); do
-            grep -q 'Done (' console.log 2>/dev/null && { booted=1; break; }
+            # Anchored to what vanilla actually prints - a bare 'Done (' also
+            # matches mods logging their own timings, and one did: the gate
+            # called a server booted while it was still in ServerStarting.
+            grep -qE 'Done \([0-9.]+s\)! For help' console.log 2>/dev/null && { booted=1; break; }
             [ -f exitcode ] && break
             sleep 2
           done

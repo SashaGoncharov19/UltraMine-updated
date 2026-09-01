@@ -109,6 +109,10 @@ public class NetHandlerLoginServer implements INetHandlerLoginServer
 
 	public void onDisconnect(IChatComponent p_147231_1_)
 	{
+		/* ULTRAMINE: a login that never reached playerLoggedIn still holds its
+		   claim on the profile. Release it here so a player whose connection drops
+		   mid-handshake can reconnect at once instead of waiting out the expiry. */
+		this.field_147327_f.getConfigurationManager().releaseLoginSlot(this.field_147337_i);
 		logger.info(this.func_147317_d() + " lost connection: " + p_147231_1_.getUnformattedText());
 	}
 
