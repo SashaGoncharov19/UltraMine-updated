@@ -224,7 +224,7 @@ jobs:
           echo "Using pack: $URL"
 
       - name: Cache modpack zip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: modpack.zip
           key: ${{ steps.pack.outputs.key }}
